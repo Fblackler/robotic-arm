@@ -1,26 +1,4 @@
-"""
-SERVO CONTROL SYSTEM
 
-Smart servos:
-    servo.write_position(2048)
-
-Position range:
-    0-4095
-
-Read smart servo data:
-    servo.read_data(REGISTERS["current_position"])
-    servo.read_data(REGISTERS["temperature"])
-    servo.read_data(REGISTERS["voltage"])
-
-Hobby servos:
-    servo.write_position(135)
-
-Range:
-    0-270 degrees
-
-Hobby servos return the last commanded position only:
-    servo.read_data()
-"""
 
 import tkinter as tk
 import serial
@@ -60,10 +38,12 @@ REGISTERS = {
 # Servo Class
 # ==========================================================
 class Servo:
-    def __init__(self, servo_id, servo_type):
+    def __init__(self, servo_id, servo_type, limits, default_pos):
         self.id = servo_id
         self.type = servo_type
-        self.position = None
+        self.position = default_pos
+        self.limits = limits
+        self.default_pos = default_pos
 
         if self.type == "Smart":
             self.ser = smart_ser
@@ -167,41 +147,3 @@ def hobby_write_position(self, position):
 
     self.ser.write(command.encode())
 
-# ====================================================================
-# Joints
-# ====================================================================
-
-pincher = Servo(
-    1,
-    "smart"
-)
-
-base = Servo(
-    0,
-    "hobby"
-)
-
-arm = Servo(
-    1,
-    "hobby"
-)
-
-elbow = Servo(
-    2,
-    "hobby"
-)
-
-forearm = Servo(
-    3,
-    "hobby"
-)
-
-wrist = Servo(
-    4,
-    "hobby"
-)
-
-hand = Servo(
-    5,
-    "hobby"
-)
