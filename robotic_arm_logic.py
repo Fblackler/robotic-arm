@@ -90,8 +90,11 @@ SERVOS = {
 
 
 
-def toPos():
-    
+def toPos(servos):
+    """Forward kinematics stub — returns (x, y, z) in cm from servo positions.
+    TODO: replace with real geometry once arm link lengths are known."""
+    return (0.0, 0.0, 0.0)
+
 
 def main():
     posx, posy, posz = toPos(SERVOS)
