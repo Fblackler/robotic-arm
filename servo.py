@@ -1,12 +1,13 @@
 
-
-import tkinter as tk
 import serial
 
 # ==========================================================
 # Settings
 # ==========================================================
-# Ports
+# Ports — update for your OS/hardware
+# Windows: "COM3", "COM4", ...
+# Linux:   "/dev/ttyUSB0", "/dev/ttyACM0"
+# macOS:   "/dev/cu.usbmodem...", "/dev/tty.usbserial..."
 SMART_PORT = "/dev/cu.usbmodem5B141156511"
 HOBBY_PORT = "/dev/tty.usbserial-10"
 
@@ -16,9 +17,16 @@ SMART_SERVO_ID = 1
 # Hobby Servo settings
 HOBBY_BAUD = 115200
 
-# Open serial connection
-smart_ser = serial.Serial(SMART_PORT, SMART_BAUD, timeout=1)
-ser = serial.Serial(HOBBY_PORT, HOBBY_BAUD, timeout=1)
+# Connections are None until init_serial() is called — do NOT open at import time
+smart_ser = None
+ser = None
+
+
+def init_serial():
+    """Open both serial ports. Call once before using any servos."""
+    global smart_ser, ser
+    smart_ser = serial.Serial(SMART_PORT, SMART_BAUD, timeout=1)
+    ser       = serial.Serial(HOBBY_PORT, HOBBY_BAUD, timeout=1)
 
 # Smart servo range
 SMART_MIN_POS = 0
@@ -46,25 +54,30 @@ class Servo:
         self.default_pos = default_pos
         self.conversion_angle = conversion_angle
 
-        if self.type == "Smart":
-            self.ser = smart_ser
-        else:
-            self.ser = ser
+    @property
+    def ser(self):
+        """Resolve the correct serial port on first access (after init_serial())."""
+        if self._ser is None:
+            if self.type == "smart":
+                if smart_ser is None:
+                    raise RuntimeError("Call init_serial() before using servos")
+                self._ser = smart_ser
+            else:
+                if ser is None:
+                    raise RuntimeError("Call init_serial() before using servos")
+                self._ser = ser
+        return self._ser
 
     def write_position(self, position):
-
-        if self.type == "Smart":
+        if self.type == "smart":
             return smart_write_position(self, position)
         else:
             self.position = position + self.conversion_angle
             return hobby_write_position(self, position)
-            
 
     def read_data(self, register_address=None):
-
         register, size = register_address
-
-        if self.type == "Smart":
+        if self.type == "smart":
             return smart_read(self, register, size)
         else:
             return self.position
