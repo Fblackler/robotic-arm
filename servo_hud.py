@@ -2,7 +2,7 @@ import tkinter as tk
 import serial
 import time
 
-PORT = "/dev/ttyS3"
+PORT = "COM3"
 BAUD = 115200
 
 ser = serial.Serial(PORT, BAUD, timeout=1)
