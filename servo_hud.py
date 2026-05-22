@@ -1,43 +1,88 @@
-import tkinter as tk
+from flask import Flask, render_template_string, request
 import serial
 import time
 
-PORT = "COM4"
+PORT = "COM4"   # or COM4
 BAUD = 115200
 
 ser = serial.Serial(PORT, BAUD, timeout=1)
-time.sleep(3)  # allow Arduino reset
+time.sleep(2)
 
-def send_angle(index, value):
-    angle = int(float(value))
-    ser.write(f"{index}:{angle}\n".encode())
+app = Flask(__name__)
 
-def on_close():
-    ser.close()
-    root.destroy()
+HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Servo Controller</title>
+    <style>
+        body {
+            font-family: Arial;
+            padding: 20px;
+            background: #111;
+            color: white;
+        }
 
-root = tk.Tk()
-root.title("Servo Controller")
-root.geometry("500x500")
+        .slider-container {
+            margin-bottom: 25px;
+        }
 
-for i in range(6):
-    label = tk.Label(root, text=f"Servo {i} (Channel {i*2})")
-    label.pack()
+        input[type=range] {
+            width: 400px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Robot Arm Controller</h1>
 
-    slider = tk.Scale(
-        root,
-        from_=0,
-        to=270,
-        orient="horizontal",
-        length=400,
-        command=lambda val, idx=i: send_angle(idx, val)
-    )
-    slider.set(135)
-    slider.pack(pady=5)
+    {% for i in range(6) %}
+    <div class="slider-container">
+        <label>Servo {{i}}</label><br>
+        <input type="range"
+               min="0"
+               max="270"
+               value="135"
+               oninput="sendServo({{i}}, this.value)">
+        <span id="val{{i}}">135</span>
+    </div>
+    {% endfor %}
 
-# Initialize all servos to center
-for i in range(6):
-    send_angle(i, 135)
+<script>
+function sendServo(index, value) {
+    document.getElementById("val"+index).innerText = value;
 
-root.protocol("WM_DELETE_WINDOW", on_close)
-root.mainloop()
+    fetch("/servo", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            servo: index,
+            angle: value
+        })
+    });
+}
+</script>
+
+</body>
+</html>
+"""
+
+@app.route("/")
+def home():
+    return render_template_string(HTML)
+
+@app.route("/servo", methods=["POST"])
+def servo():
+    data = request.json
+
+    servo = int(data["servo"])
+    angle = int(data["angle"])
+
+    cmd = f"{servo}:{angle}\n"
+    ser.write(cmd.encode())
+
+    return "OK"
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080)
