@@ -38,7 +38,7 @@ SERVOS = {
             "smart",
             limits=(0, 4095),
             default_pos=2042,
-            conversion_angle=xx
+            conversion_angle=0
         ),
 
     "Base": 
@@ -47,7 +47,7 @@ SERVOS = {
             "hobby",
             limits=(0, 270),
             default_pos=145,
-            conversion_angle=0
+            conversion_angle=290 - 145
         ),
 
     "Arm": 
@@ -55,8 +55,8 @@ SERVOS = {
             1,
             "hobby",
             limits=(50, 170),
-            default_pos=135,
-            conversion_angle=xx
+            default_pos=100,
+            conversion_angle=127 - 100
         ),
 
     "Elbow": 
@@ -64,8 +64,8 @@ SERVOS = {
             2,
             "hobby",
             limits=(70, 270),
-            default_pos=130,
-            conversion_angle=xx
+            default_pos=140,
+            conversion_angle=247 - 140
         ),
 
     "Forearm": 
@@ -73,8 +73,8 @@ SERVOS = {
             3,
             "hobby",
             limits=(0, 270),
-            default_pos=175,
-            conversion_angle=xx
+            default_pos=126,
+            conversion_angle=252 - 126
         ),
 
     "Wrist": 
@@ -83,7 +83,7 @@ SERVOS = {
             "hobby",
             limits=(30, 270),
             default_pos=80,
-            conversion_angle=xx
+            conversion_angle=225 - 80
         ),
 
     "Hand": 
@@ -91,8 +91,8 @@ SERVOS = {
             5,
             "hobby",
             limits=(0, 270),
-            default_pos=140,
-            conversion_angle=xx
+            default_pos=130,
+            conversion_angle=260 - 130
         )
 }
 
@@ -103,7 +103,7 @@ def toPos(SERVOS):
     base_angle = math.radians(SERVOS["Base"].position)
     arm_angle = math.radians(SERVOS["Arm"].position)
     elbow_angle = math.radians(SERVOS["Elbow"].position) + arm_angle
-    forearm_total_pitch = elbow_angle - math.radians(65) # TODO: To be determined
+    forearm_total_pitch = elbow_angle - math.radians(300) # TODO: To be determined
     forearm_angle = math.radians(SERVOS["Forearm"].position)
     wrist_angle = math.radians(SERVOS["Wrist"].position)
     hand_total_angle = wrist_angle + math.radians(13) #TODO: To be determined

@@ -2,7 +2,7 @@ from flask import Flask, render_template_string, request
 import serial
 import time
 
-PORT = "COM4"   # or COM4
+PORT = "/dev/ttyUSB0"
 BAUD = 115200
 
 ser = serial.Serial(PORT, BAUD, timeout=1)

@@ -2,7 +2,7 @@ import math
 import numpy as np
 
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
+from matplotlib.widgets import Slider
 from mpl_toolkits.mplot3d import Axes3D
 
 
@@ -11,9 +11,14 @@ from mpl_toolkits.mplot3d import Axes3D
 # =========================================================
 
 class FakeServo:
-    def __init__(self, limits, default_pos):
+    def __init__(self, limits, default_pos, conversion_angle=0):
         self.limits = limits
-        self.position = default_pos
+        self.default_pos = default_pos
+        self.conversion_angle = conversion_angle
+        self.position = default_pos - conversion_angle
+
+    def write_position(self, position):
+        self.position = position - self.conversion_angle
 
 
 # =========================================================
@@ -21,12 +26,12 @@ class FakeServo:
 # =========================================================
 
 SERVOS = {
-    "Base": FakeServo((0, 270), 145),
-    "Arm": FakeServo((50, 170), 135),
-    "Elbow": FakeServo((70, 270), 130),
-    "Forearm": FakeServo((0, 270), 175),
-    "Wrist": FakeServo((30, 270), 80),
-    "Hand": FakeServo((0, 270), 140),
+    "Base":    FakeServo((0, 270),   145, conversion_angle=290 - 145),
+    "Arm":     FakeServo((50, 170),  100, conversion_angle=127 - 100),
+    "Elbow":   FakeServo((70, 270),  140, conversion_angle=247 - 140),
+    "Forearm": FakeServo((0, 270),   126, conversion_angle=252 - 126),
+    "Wrist":   FakeServo((30, 270),  80,  conversion_angle=123 - 80),
+    "Hand":    FakeServo((0, 270),   130, conversion_angle=260 - 130),
 }
 
 
@@ -54,7 +59,7 @@ def toPos(SERVOS):
     )
 
     forearm_total_pitch = (
-        elbow_angle - math.radians(65)
+        elbow_angle - math.radians(300)
     )
 
     forearm_angle = math.radians(
@@ -65,13 +70,11 @@ def toPos(SERVOS):
         SERVOS["Wrist"].position
     )
 
-    hand_total_angle = (
-        wrist_angle + math.radians(13)
-    )
-
     hand_angle = math.radians(
         SERVOS["Hand"].position
     )
+
+    hand_total_angle = math.radians(13)
 
 
     # =====================================================
@@ -219,22 +222,11 @@ def toPos(SERVOS):
     # Up Direction
     # =====================================================
 
-    up_dir_x = (
-        math.sin(base_angle) *
-        forearm_dir_z
-    )
+    dot = forearm_dir_z
 
-    up_dir_y = (
-        -math.cos(base_angle) *
-        forearm_dir_z
-    )
-
-    up_dir_z = (
-        math.cos(base_angle) *
-        forearm_dir_y -
-        math.sin(base_angle) *
-        forearm_dir_x
-    )
+    up_dir_x = -forearm_dir_x * dot
+    up_dir_y = -forearm_dir_y * dot
+    up_dir_z = 1.0 - forearm_dir_z * dot
 
     up_dir_length = math.sqrt(
         up_dir_x**2 +
@@ -314,17 +306,17 @@ def toPos(SERVOS):
     # =====================================================
 
     hand_dir_x = (
-        math.cos(wrist_angle) * forearm_dir_x +
+        math.cos(wrist_angle) * forearm_dir_x -
         math.sin(wrist_angle) * wrist_offset_vector_x
     )
 
     hand_dir_y = (
-        math.cos(wrist_angle) * forearm_dir_y +
+        math.cos(wrist_angle) * forearm_dir_y -
         math.sin(wrist_angle) * wrist_offset_vector_y
     )
 
     hand_dir_z = (
-        math.cos(wrist_angle) * forearm_dir_z +
+        math.cos(wrist_angle) * forearm_dir_z -
         math.sin(wrist_angle) * wrist_offset_vector_z
     )
 
@@ -371,11 +363,18 @@ def toPos(SERVOS):
     }
 
 
+    norm_wrist_axis_pos = {
+        "x": forearm_pos["x"] + norm_wrist_pos_x,
+        "y": forearm_pos["y"] + norm_wrist_pos_y,
+        "z": forearm_pos["z"] + norm_wrist_pos_z
+    }
+
     return [
         base_pos,
         arm_pos,
         elbow_pos,
         forearm_pos,
+        norm_wrist_axis_pos,
         wrist_pos,
         hand_pos,
         pincher_pos
@@ -386,17 +385,57 @@ def toPos(SERVOS):
 # Visualization
 # =========================================================
 
-fig = plt.figure(figsize=(10, 10))
+SERVO_NAMES = ["Base", "Arm", "Elbow", "Forearm", "Wrist", "Hand"]
+
+fig = plt.figure(figsize=(12, 9))
 
 ax = fig.add_subplot(
     111,
     projection='3d'
 )
 
+fig.subplots_adjust(left=0.05, right=0.65)
 
-def update(frame):
+ax.set_xlim3d(-900, 900)
+ax.set_ylim3d(-900, 900)
+ax.set_zlim3d(0, 900)
 
+
+# =========================================================
+# Sliders
+# =========================================================
+
+sliders = {}
+
+for i, name in enumerate(SERVO_NAMES):
+    servo = SERVOS[name]
+    slider_ax = fig.add_axes([0.70, 0.08 + i * 0.13, 0.25, 0.04])
+    slider = Slider(
+        slider_ax,
+        name,
+        servo.limits[0],
+        servo.limits[1],
+        valinit=servo.default_pos
+    )
+    sliders[name] = slider
+
+
+# =========================================================
+# Draw
+# =========================================================
+
+def draw(_=None):
+
+    elev = ax.elev
+    azim = ax.azim
+    xlim = ax.get_xlim3d()
+    ylim = ax.get_ylim3d()
+    zlim = ax.get_zlim3d()
     ax.clear()
+    ax.view_init(elev=elev, azim=azim)
+    ax.set_xlim3d(xlim)
+    ax.set_ylim3d(ylim)
+    ax.set_zlim3d(zlim)
 
     joints = toPos(SERVOS)
 
@@ -404,30 +443,10 @@ def update(frame):
     ys = [p["y"] for p in joints]
     zs = [p["z"] for p in joints]
 
-    # =============================================
-    # Draw Robot Arm
-    # =============================================
-
-    ax.plot(
-        xs,
-        ys,
-        zs,
-        linewidth=3
-    )
-
-    ax.scatter(
-        xs,
-        ys,
-        zs,
-        s=50
-    )
-
-    # =============================================
-    # Pincher Point
-    # =============================================
+    ax.plot(xs, ys, zs, linewidth=3)
+    ax.scatter(xs, ys, zs, s=50)
 
     pincher_pos = joints[-1]
-
     ax.scatter(
         [pincher_pos["x"]],
         [pincher_pos["y"]],
@@ -435,65 +454,30 @@ def update(frame):
         s=100
     )
 
-    # =============================================
-    # Ground Plane
-    # =============================================
-
-    x = np.array([
-        [-900, -900],
-        [900, 900]
-    ])
-
-    y = np.array([
-        [-900, 900],
-        [-900, 900]
-    ])
-
-    z = np.array([
-        [0, 0],
-        [0, 0]
-    ])
-
-    ax.plot_surface(
-        x,
-        y,
-        z,
-        alpha=0.15
-    )
-
-    # =============================================
-    # Camera Rotation
-    # =============================================
-
-    ax.view_init(
-        elev=30,
-        azim=frame * 0.3
-    )
-
-    # =============================================
-    # Axes
-    # =============================================
-
-    ax.set_xlim(-900, 900)
-    ax.set_ylim(-900, 900)
-    ax.set_zlim(0, 900)
+    x = np.array([[-900, -900], [900, 900]])
+    y = np.array([[-900,  900], [-900, 900]])
+    z = np.array([[0, 0], [0, 0]])
+    ax.plot_surface(x, y, z, alpha=0.15)
 
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
+    ax.set_title("Robot Arm")
 
-    ax.set_title("Robot Arm Default Position")
+    fig.canvas.draw_idle()
 
 
-# =========================================================
-# Animation
-# =========================================================
+def on_slider_change(_):
+    for name, slider in sliders.items():
+        servo = SERVOS[name]
+        flipped = 2 * servo.default_pos - slider.val
+        servo.write_position(flipped)
+    draw()
 
-ani = FuncAnimation(
-    fig,
-    update,
-    interval=50,
-    cache_frame_data=False
-)
 
+for slider in sliders.values():
+    slider.on_changed(on_slider_change)
+
+
+draw()
 plt.show()

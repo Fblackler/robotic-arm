@@ -2,7 +2,7 @@ import tkinter as tk
 import serial
 
 # Waveshare adapter port
-PORT = "/dev/cu.usbmodem5B141156511"
+PORT = "/dev/ttyACM0"
 
 # Servo settings
 BAUD = 1000000

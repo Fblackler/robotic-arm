@@ -49,7 +49,7 @@ class Servo:
     def __init__(self, servo_id, servo_type, limits, default_pos, conversion_angle):
         self.id = servo_id
         self.type = servo_type
-        self.position = default_pos + self.conversion_angle
+        self.position = default_pos - self.conversion_angle
         self.limits = limits
         self.default_pos = default_pos
         self.conversion_angle = conversion_angle
@@ -72,7 +72,7 @@ class Servo:
         if self.type == "smart":
             return smart_write_position(self, position)
         else:
-            self.position = position + self.conversion_angle
+            self.position = position - self.conversion_angle
             return hobby_write_position(self, position)
 
     def read_data(self, register_address=None):
