@@ -1,3 +1,5 @@
+import numpy as np
+
 """
 SERVO CONTROL SYSTEM
 
@@ -30,7 +32,6 @@ import math
 # ====================================================================
 # Joints
 # ====================================================================
-# TODO: Change limits to arm physical limitations.
 SERVOS = {
     "Pincher":
         Servo(
@@ -96,28 +97,25 @@ SERVOS = {
         )
 }
 
+# Lengths in mm
+base_height = 130
+arm_length = 320
+elbow_length = 62
+forearm_length = 325
+hand_length = 230
 
+def normalise(vector):
+        return vector / np.linalg.norm(vector)
 
-def toPos(SERVOS):
+def forward_kinematics(SERVOS):
     # To change with conversion angle
     base_angle = math.radians(SERVOS["Base"].position)
     arm_angle = math.radians(SERVOS["Arm"].position)
     elbow_angle = math.radians(SERVOS["Elbow"].position) + arm_angle
-    forearm_total_pitch = elbow_angle - math.radians(300) # TODO: To be determined
+    forearm_total_pitch = elbow_angle - math.radians(300)
     forearm_angle = math.radians(SERVOS["Forearm"].position)
     wrist_angle = math.radians(SERVOS["Wrist"].position)
-    hand_total_angle = wrist_angle + math.radians(13) #TODO: To be determined
     hand_angle = math.radians(SERVOS["Hand"].position)
-
-    # Lengths in mm
-    base_height = 130
-    arm_length = 320
-    elbow_length = 62
-    forearm_length = 325
-    wrist_length = 60
-    hand_length = 100
-
-    wrist_offset = 10 # upwards
 
     base_pos = {
         "x": 0,
@@ -148,192 +146,171 @@ def toPos(SERVOS):
         "y": elbow_pos["y"] + forearm_pos_y,
         "z": elbow_pos["z"] + forearm_pos_z
     }
-    
-    # =========================================================
-    # Wrist Basis Vectors
-    # =========================================================
 
-    # Wrist target position relative to forearm joint
-    norm_wrist_pos_x = (
-        forearm_length *
-        math.cos(forearm_total_pitch) *
-        math.cos(base_angle)
-    )
-
-    norm_wrist_pos_y = (
-        forearm_length *
-        math.cos(forearm_total_pitch) *
-        math.sin(base_angle)
-    )
-
-    norm_wrist_pos_z = (
-        forearm_length *
-        math.sin(forearm_total_pitch)
-    )
-
-    # Forward direction from forearm joint to wrist target
-    forearm_dir_x = norm_wrist_pos_x - forearm_pos_x
-    forearm_dir_y = norm_wrist_pos_y - forearm_pos_y
-    forearm_dir_z = norm_wrist_pos_z - forearm_pos_z
-
-    forearm_dir_length = math.sqrt(
-        forearm_dir_x**2 +
-        forearm_dir_y**2 +
-        forearm_dir_z**2
-    )
-
-    forearm_dir_x /= forearm_dir_length
-    forearm_dir_y /= forearm_dir_length
-    forearm_dir_z /= forearm_dir_length
-
-
-    # =========================================================
-    # Local Up Vector
-    # =========================================================
-
-    up_dir_x = math.sin(base_angle) * forearm_dir_z
-    up_dir_y = -math.cos(base_angle) * forearm_dir_z
-
-    up_dir_z = (
-        math.cos(base_angle) * forearm_dir_y -
-        math.sin(base_angle) * forearm_dir_x
-    )
-
-    up_dir_length = math.sqrt(
-        up_dir_x**2 +
-        up_dir_y**2 +
-        up_dir_z**2
-    )
-
-    up_dir_x /= up_dir_length
-    up_dir_y /= up_dir_length
-    up_dir_z /= up_dir_length
-
-
-    # =========================================================
-    # Local Side Vector
-    # =========================================================
-
-    side_dir_x = (
-        forearm_dir_y * up_dir_z -
-        forearm_dir_z * up_dir_y
-    )
-
-    side_dir_y = (
-        forearm_dir_z * up_dir_x -
-        forearm_dir_x * up_dir_z
-    )
-
-    side_dir_z = (
-        forearm_dir_x * up_dir_y -
-        forearm_dir_y * up_dir_x
-    )
-
-
-    # =========================================================
-    # Wrist Roll Offset Direction
-    # =========================================================
-
-    wrist_offset_vector_x = (
-        math.cos(forearm_angle) * up_dir_x +
-        math.sin(forearm_angle) * side_dir_x
-    )
-
-    wrist_offset_vector_y = (
-        math.cos(forearm_angle) * up_dir_y +
-        math.sin(forearm_angle) * side_dir_y
-    )
-
-    wrist_offset_vector_z = (
-        math.cos(forearm_angle) * up_dir_z +
-        math.sin(forearm_angle) * side_dir_z
-    )
-
-
-    # =========================================================
-    # Wrist Position
-    # =========================================================
-
-    wrist_pos_x = (
-        norm_wrist_pos_x +
-        wrist_offset_vector_x * wrist_offset
-    )
-
-    wrist_pos_y = (
-        norm_wrist_pos_y +
-        wrist_offset_vector_y * wrist_offset
-    )
-
-    wrist_pos_z = (
-        norm_wrist_pos_z +
-        wrist_offset_vector_z * wrist_offset
-    )
-
+    wrist_pos_x = forearm_length * math.cos(forearm_total_pitch) * math.cos(base_angle)
+    wrist_pos_y = forearm_length * math.cos(forearm_total_pitch) * math.sin(base_angle)
+    wrist_pos_z = forearm_length * math.sin(forearm_total_pitch)
     wrist_pos = {
         "x": forearm_pos["x"] + wrist_pos_x,
         "y": forearm_pos["y"] + wrist_pos_y,
         "z": forearm_pos["z"] + wrist_pos_z
     }
+    
+    # Wrist to hand calculation
+    forearm_axis = normalise(np.array([
+        wrist_pos["x"] - forearm_pos["x"],
+        wrist_pos["y"] - forearm_pos["y"],
+        wrist_pos["z"] - forearm_pos["z"]
+    ]))
 
+    radius = hand_length * math.sin(wrist_angle)
+    reach = hand_length * math.cos(wrist_angle)
 
-    # =========================================================
-    # Hand Direction
-    # =========================================================
+    temp = np.array([0, 0, 1])
 
-    hand_dir_x = (
-        math.cos(wrist_angle) * forearm_dir_x +
-        math.sin(wrist_angle) * wrist_offset_vector_x
+    if abs(np.dot(temp, forearm_axis)) > 0.99:
+        temp = np.array([1, 0, 0])
+
+    right = normalise(np.cross(temp, forearm_axis))
+    up = np.cross(forearm_axis, right)
+
+    offset = (
+          radius * math.cos(forearm_angle) * right +
+          radius * math.sin(forearm_angle) * up
     )
 
-    hand_dir_y = (
-        math.cos(wrist_angle) * forearm_dir_y +
-        math.sin(wrist_angle) * wrist_offset_vector_y
-    )
-
-    hand_dir_z = (
-        math.cos(wrist_angle) * forearm_dir_z +
-        math.sin(wrist_angle) * wrist_offset_vector_z
-    )
-
-
-    # =========================================================
-    # Hand Position
-    # =========================================================
-
+    forward = reach * forearm_axis
+    point = forward + offset
     hand_pos = {
-        "x": wrist_pos["x"] + hand_dir_x * wrist_length,
-        "y": wrist_pos["y"] + hand_dir_y * wrist_length,
-        "z": wrist_pos["z"] + hand_dir_z * wrist_length
-    }
-
-    # =========================================================
-    # Pincher Direction
-    # =========================================================
-
-    pincher_dir_x = (
-        math.cos(hand_total_angle) * hand_dir_x +
-        math.sin(hand_total_angle) * wrist_offset_vector_x
-    )
-
-    pincher_dir_y = (
-        math.cos(hand_total_angle) * hand_dir_y +
-        math.sin(hand_total_angle) * wrist_offset_vector_y
-    )
-
-    pincher_dir_z = (
-        math.cos(hand_total_angle) * hand_dir_z +
-        math.sin(hand_total_angle) * wrist_offset_vector_z
-    )
-
-
-    # =========================================================
-    # Pincher Position
-    # =========================================================
-
-    pincher_pos = {
-        "x": hand_pos["x"] + pincher_dir_x * hand_length,
-        "y": hand_pos["y"] + pincher_dir_y * hand_length,
-        "z": hand_pos["z"] + pincher_dir_z * hand_length
+        "x": point[0] + wrist_pos["x"],
+        "y": point[1] + wrist_pos["y"],
+        "z": point[2] + wrist_pos["z"]
     }
 
 
+def inverse_kinematics(target_pos, target_pitch, target_yaw, target_roll=SERVOS["Hand"].position):
+
+    wrist_pos_x = hand_length * math.cos(target_pitch - math.radians(180)) * math.cos(target_yaw - math.radians(180))
+    wrist_pos_y = hand_length * math.cos(target_pitch - math.radians(180)) * math.sin(target_yaw - math.radians(180))
+    wrist_pos_z = hand_length * math.sin(target_pitch - math.radians(180))
+    wrist_pos = {
+        "x": target_pos["x"] + wrist_pos_x,
+        "y": target_pos["y"] + wrist_pos_y,
+        "z": target_pos["z"] + wrist_pos_z
+    }
+
+    base_angle = math.atan2(wrist_pos["y"], wrist_pos["x"])
+    base_pos = {"x": 0, "y": 0, "z": 0}
+    arm_pos = {"x": 0, "y": 0, "z": base_height}
+    arm_angle, elbow_angle = optimal_arm_to_forearm_angle(wrist_pos, base_angle, arm_pos)
+
+    arm_angle_r   = math.radians(arm_angle)
+    elbow_angle_r = math.radians(elbow_angle) + arm_angle_r
+
+    elbow_pos = {
+        "x": arm_pos["x"] + arm_length * math.cos(arm_angle_r) * math.cos(base_angle),
+        "y": arm_pos["y"] + arm_length * math.cos(arm_angle_r) * math.sin(base_angle),
+        "z": arm_pos["z"] + arm_length * math.sin(arm_angle_r)
+    }
+
+    forearm_pos = {
+        "x": elbow_pos["x"] + elbow_length * math.cos(elbow_angle_r) * math.cos(base_angle),
+        "y": elbow_pos["y"] + elbow_length * math.cos(elbow_angle_r) * math.sin(base_angle),
+        "z": elbow_pos["z"] + elbow_length * math.sin(elbow_angle_r)
+    }
+
+    forearm_axis = normalise(np.array([
+        wrist_pos["x"] - forearm_pos["x"],
+        wrist_pos["y"] - forearm_pos["y"],
+        wrist_pos["z"] - forearm_pos["z"]
+    ]))
+
+    temp = np.array([0, 0, 1])
+    if abs(np.dot(temp, forearm_axis)) > 0.99:
+        temp = np.array([1, 0, 0])
+
+    right = normalise(np.cross(temp, forearm_axis))
+    up    = np.cross(forearm_axis, right)
+
+    target_dir = np.array([
+        math.cos(target_pitch) * math.cos(target_yaw),
+        math.cos(target_pitch) * math.sin(target_yaw),
+        math.sin(target_pitch)
+    ])
+
+    forearm_angle = math.atan2(np.dot(target_dir, up), np.dot(target_dir, right))
+
+    wrist_angle = math.acos(np.clip(np.dot(target_dir, forearm_axis), -1.0, 1.0))
+
+    tilt_dir  = math.cos(forearm_angle) * right + math.sin(forearm_angle) * up
+    target_up = math.cos(target_roll)   * right + math.sin(target_roll)   * up
+    hand_angle = math.atan2(
+        np.dot(np.cross(tilt_dir, target_up), target_dir),
+        np.dot(tilt_dir, target_up)
+    )
+
+    return {
+        "Base":    math.degrees(base_angle),
+        "Arm":     arm_angle,
+        "Elbow":   elbow_angle,
+        "Forearm": math.degrees(forearm_angle),
+        "Wrist":   math.degrees(wrist_angle),
+        "Hand":    math.degrees(hand_angle),
+    }
+
+
+def optimal_arm_to_forearm_angle(wrist_pos, base_angle, arm_pos):
+    arm_angles  = range(50, 171)
+    elbow_angles = range(70, 271)
+    angles = {}
+
+    for i, arm_angle in enumerate(arm_angles):
+        arm_angle_r = math.radians(arm_angle)
+        elbow_pos_x = arm_length * math.cos(arm_angle_r) * math.cos(base_angle)
+        elbow_pos_y = arm_length * math.cos(arm_angle_r) * math.sin(base_angle)
+        elbow_pos_z = arm_length * math.sin(arm_angle_r)
+        elbow_pos = {
+            "x": arm_pos["x"] + elbow_pos_x,
+            "y": arm_pos["y"] + elbow_pos_y,
+            "z": arm_pos["z"] + elbow_pos_z
+        }
+
+        for j, elbow_angle in enumerate(elbow_angles):
+            elbow_angle_r = math.radians(elbow_angle) + arm_angle_r
+            forearm_pos_x = elbow_length * math.cos(elbow_angle_r) * math.cos(base_angle)
+            forearm_pos_y = elbow_length * math.cos(elbow_angle_r) * math.sin(base_angle)
+            forearm_pos_z = elbow_length * math.sin(elbow_angle_r)
+            forearm_pos = {
+                "x": elbow_pos["x"] + forearm_pos_x,
+                "y": elbow_pos["y"] + forearm_pos_y,
+                "z": elbow_pos["z"] + forearm_pos_z
+            }
+
+            forearm_total_pitch = elbow_angle_r - math.radians(300)
+            sup_wrist_pos_x = forearm_length * math.cos(forearm_total_pitch) * math.cos(base_angle)
+            sup_wrist_pos_y = forearm_length * math.cos(forearm_total_pitch) * math.sin(base_angle)
+            sup_wrist_pos_z = forearm_length * math.sin(forearm_total_pitch)
+            sup_wrist_pos = {
+                "x": forearm_pos["x"] + sup_wrist_pos_x,
+                "y": forearm_pos["y"] + sup_wrist_pos_y,
+                "z": forearm_pos["z"] + sup_wrist_pos_z
+            }
+            total_sup_position = (
+                  abs(sup_wrist_pos["x"])
+                + abs(sup_wrist_pos["y"])
+                + abs(sup_wrist_pos["z"])
+            )
+            total_wrist_position = (
+                  abs(wrist_pos["x"])
+                + abs(wrist_pos["y"])
+                + abs(wrist_pos["z"])
+            )
+            score = total_sup_position - total_wrist_position
+            if score < 5.0:
+                continue
+            else:
+                angles[f"{score}"] = (arm_angle, elbow_angle)
+
+    best_score = min(angles.keys())
+    best_arm_angle, best_elbow_angle = angles[best_score]
+    return best_arm_angle, best_elbow_angle
