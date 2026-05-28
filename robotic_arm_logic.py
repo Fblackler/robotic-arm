@@ -187,6 +187,8 @@ def forward_kinematics(SERVOS):
 
 def inverse_kinematics(target_pos, target_pitch, target_yaw, target_roll=SERVOS["Hand"].position):
 
+    target_roll = math.radians(target_roll)
+
     wrist_pos = {
         "x": target_pos["x"] - hand_length * math.cos(target_pitch) * math.cos(target_yaw),
         "y": target_pos["y"] - hand_length * math.cos(target_pitch) * math.sin(target_yaw),
