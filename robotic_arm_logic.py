@@ -47,8 +47,8 @@ SERVOS = {
             0,
             "hobby",
             limits=(0, 270),
-            default_pos=145,
-            conversion_angle=290 - 145
+            default_pos=138,
+            conversion_angle=0
         ),
 
     "Arm": 
@@ -57,7 +57,7 @@ SERVOS = {
             "hobby",
             limits=(50, 170),
             default_pos=100,
-            conversion_angle=127 - 100
+            conversion_angle=112
         ),
 
     "Elbow": 
@@ -66,7 +66,7 @@ SERVOS = {
             "hobby",
             limits=(70, 270),
             default_pos=140,
-            conversion_angle=247 - 140
+            conversion_angle=-44
         ),
 
     "Forearm": 
@@ -75,16 +75,16 @@ SERVOS = {
             "hobby",
             limits=(0, 270),
             default_pos=126,
-            conversion_angle=252 - 126
+            conversion_angle=0
         ),
 
     "Wrist": 
         Servo(
             4,
             "hobby",
-            limits=(30, 270),
+            limits=(30, 235),
             default_pos=80,
-            conversion_angle=225 - 80
+            conversion_angle=-40
         ),
 
     "Hand": 
@@ -93,7 +93,7 @@ SERVOS = {
             "hobby",
             limits=(0, 270),
             default_pos=130,
-            conversion_angle=260 - 130
+            conversion_angle=0
         )
 }
 
@@ -102,7 +102,7 @@ base_height = 130
 arm_length = 320
 elbow_length = 62
 forearm_length = 325
-hand_length = 230
+hand_length = 220
 
 def normalise(vector):
         return vector / np.linalg.norm(vector)
@@ -112,7 +112,7 @@ def forward_kinematics(SERVOS):
     base_angle = math.radians(SERVOS["Base"].position)
     arm_angle = math.radians(SERVOS["Arm"].position)
     elbow_angle = math.radians(SERVOS["Elbow"].position) + arm_angle
-    forearm_total_pitch = elbow_angle - math.radians(300)
+    forearm_total_pitch = elbow_angle - math.radians(70)
     forearm_angle = math.radians(SERVOS["Forearm"].position)
     wrist_angle = math.radians(SERVOS["Wrist"].position)
     hand_angle = math.radians(SERVOS["Hand"].position)
@@ -166,17 +166,12 @@ def forward_kinematics(SERVOS):
     radius = hand_length * math.sin(wrist_angle)
     reach = hand_length * math.cos(wrist_angle)
 
-    temp = np.array([0, 0, 1])
-
-    if abs(np.dot(temp, forearm_axis)) > 0.99:
-        temp = np.array([1, 0, 0])
-
-    right = normalise(np.cross(temp, forearm_axis))
+    right = np.array([-math.sin(base_angle), math.cos(base_angle), 0.0])
     up = np.cross(forearm_axis, right)
 
     offset = (
-          radius * math.cos(forearm_angle) * right +
-          radius * math.sin(forearm_angle) * up
+        -radius * math.sin(forearm_angle) * right +
+         radius * math.cos(forearm_angle) * up
     )
 
     forward = reach * forearm_axis
@@ -187,16 +182,15 @@ def forward_kinematics(SERVOS):
         "z": point[2] + wrist_pos["z"]
     }
 
+    return [base_pos, arm_pos, elbow_pos, forearm_pos, wrist_pos, hand_pos]
+
 
 def inverse_kinematics(target_pos, target_pitch, target_yaw, target_roll=SERVOS["Hand"].position):
 
-    wrist_pos_x = hand_length * math.cos(target_pitch - math.radians(180)) * math.cos(target_yaw - math.radians(180))
-    wrist_pos_y = hand_length * math.cos(target_pitch - math.radians(180)) * math.sin(target_yaw - math.radians(180))
-    wrist_pos_z = hand_length * math.sin(target_pitch - math.radians(180))
     wrist_pos = {
-        "x": target_pos["x"] + wrist_pos_x,
-        "y": target_pos["y"] + wrist_pos_y,
-        "z": target_pos["z"] + wrist_pos_z
+        "x": target_pos["x"] - hand_length * math.cos(target_pitch) * math.cos(target_yaw),
+        "y": target_pos["y"] - hand_length * math.cos(target_pitch) * math.sin(target_yaw),
+        "z": target_pos["z"] - hand_length * math.sin(target_pitch),
     }
 
     base_angle = math.atan2(wrist_pos["y"], wrist_pos["x"])
@@ -225,11 +219,7 @@ def inverse_kinematics(target_pos, target_pitch, target_yaw, target_roll=SERVOS[
         wrist_pos["z"] - forearm_pos["z"]
     ]))
 
-    temp = np.array([0, 0, 1])
-    if abs(np.dot(temp, forearm_axis)) > 0.99:
-        temp = np.array([1, 0, 0])
-
-    right = normalise(np.cross(temp, forearm_axis))
+    right = np.array([-math.sin(base_angle), math.cos(base_angle), 0.0])
     up    = np.cross(forearm_axis, right)
 
     target_dir = np.array([
@@ -238,12 +228,12 @@ def inverse_kinematics(target_pos, target_pitch, target_yaw, target_roll=SERVOS[
         math.sin(target_pitch)
     ])
 
-    forearm_angle = math.atan2(np.dot(target_dir, up), np.dot(target_dir, right))
+    forearm_angle = math.atan2(-np.dot(target_dir, right), np.dot(target_dir, up))
 
     wrist_angle = math.acos(np.clip(np.dot(target_dir, forearm_axis), -1.0, 1.0))
 
-    tilt_dir  = math.cos(forearm_angle) * right + math.sin(forearm_angle) * up
-    target_up = math.cos(target_roll)   * right + math.sin(target_roll)   * up
+    tilt_dir  = -math.sin(forearm_angle) * right + math.cos(forearm_angle) * up
+    target_up = -math.sin(target_roll)   * right + math.cos(target_roll)   * up
     hand_angle = math.atan2(
         np.dot(np.cross(tilt_dir, target_up), target_dir),
         np.dot(tilt_dir, target_up)
@@ -260,57 +250,46 @@ def inverse_kinematics(target_pos, target_pitch, target_yaw, target_roll=SERVOS[
 
 
 def optimal_arm_to_forearm_angle(wrist_pos, base_angle, arm_pos):
-    arm_angles  = range(50, 171)
-    elbow_angles = range(70, 271)
-    angles = {}
+    arm_s   = SERVOS["Arm"]
+    elbow_s = SERVOS["Elbow"]
 
-    for i, arm_angle in enumerate(arm_angles):
+    arm_kin_min   = round(arm_s.conversion_angle   + (arm_s.limits[0]   - arm_s.default_pos))
+    arm_kin_max   = round(arm_s.conversion_angle   + (arm_s.limits[1]   - arm_s.default_pos))
+    elbow_kin_min = round(elbow_s.conversion_angle + (elbow_s.limits[0] - elbow_s.default_pos))
+    elbow_kin_max = round(elbow_s.conversion_angle + (elbow_s.limits[1] - elbow_s.default_pos))
+
+    best_score  = float("inf")
+    best_angles = (arm_kin_min, elbow_kin_min)
+
+    for arm_angle in range(arm_kin_min, arm_kin_max + 1, 2):
         arm_angle_r = math.radians(arm_angle)
-        elbow_pos_x = arm_length * math.cos(arm_angle_r) * math.cos(base_angle)
-        elbow_pos_y = arm_length * math.cos(arm_angle_r) * math.sin(base_angle)
-        elbow_pos_z = arm_length * math.sin(arm_angle_r)
         elbow_pos = {
-            "x": arm_pos["x"] + elbow_pos_x,
-            "y": arm_pos["y"] + elbow_pos_y,
-            "z": arm_pos["z"] + elbow_pos_z
+            "x": arm_pos["x"] + arm_length * math.cos(arm_angle_r) * math.cos(base_angle),
+            "y": arm_pos["y"] + arm_length * math.cos(arm_angle_r) * math.sin(base_angle),
+            "z": arm_pos["z"] + arm_length * math.sin(arm_angle_r),
         }
-
-        for j, elbow_angle in enumerate(elbow_angles):
+        for elbow_angle in range(elbow_kin_min, elbow_kin_max + 1, 2):
             elbow_angle_r = math.radians(elbow_angle) + arm_angle_r
-            forearm_pos_x = elbow_length * math.cos(elbow_angle_r) * math.cos(base_angle)
-            forearm_pos_y = elbow_length * math.cos(elbow_angle_r) * math.sin(base_angle)
-            forearm_pos_z = elbow_length * math.sin(elbow_angle_r)
             forearm_pos = {
-                "x": elbow_pos["x"] + forearm_pos_x,
-                "y": elbow_pos["y"] + forearm_pos_y,
-                "z": elbow_pos["z"] + forearm_pos_z
+                "x": elbow_pos["x"] + elbow_length * math.cos(elbow_angle_r) * math.cos(base_angle),
+                "y": elbow_pos["y"] + elbow_length * math.cos(elbow_angle_r) * math.sin(base_angle),
+                "z": elbow_pos["z"] + elbow_length * math.sin(elbow_angle_r),
             }
-
-            forearm_total_pitch = elbow_angle_r - math.radians(300)
-            sup_wrist_pos_x = forearm_length * math.cos(forearm_total_pitch) * math.cos(base_angle)
-            sup_wrist_pos_y = forearm_length * math.cos(forearm_total_pitch) * math.sin(base_angle)
-            sup_wrist_pos_z = forearm_length * math.sin(forearm_total_pitch)
-            sup_wrist_pos = {
-                "x": forearm_pos["x"] + sup_wrist_pos_x,
-                "y": forearm_pos["y"] + sup_wrist_pos_y,
-                "z": forearm_pos["z"] + sup_wrist_pos_z
+            forearm_total_pitch = elbow_angle_r - math.radians(70)
+            sup_wrist = {
+                "x": forearm_pos["x"] + forearm_length * math.cos(forearm_total_pitch) * math.cos(base_angle),
+                "y": forearm_pos["y"] + forearm_length * math.cos(forearm_total_pitch) * math.sin(base_angle),
+                "z": forearm_pos["z"] + forearm_length * math.sin(forearm_total_pitch),
             }
-            total_sup_position = (
-                  abs(sup_wrist_pos["x"])
-                + abs(sup_wrist_pos["y"])
-                + abs(sup_wrist_pos["z"])
+            score = (
+                abs(sup_wrist["x"] - wrist_pos["x"]) +
+                abs(sup_wrist["y"] - wrist_pos["y"]) +
+                abs(sup_wrist["z"] - wrist_pos["z"])
             )
-            total_wrist_position = (
-                  abs(wrist_pos["x"])
-                + abs(wrist_pos["y"])
-                + abs(wrist_pos["z"])
-            )
-            score = total_sup_position - total_wrist_position
-            if score < 5.0:
-                continue
-            else:
-                angles[f"{score}"] = (arm_angle, elbow_angle)
+            if score < best_score:
+                best_score  = score
+                best_angles = (arm_angle, elbow_angle)
+                if best_score < 5.0:
+                    return best_angles
 
-    best_score = min(angles.keys())
-    best_arm_angle, best_elbow_angle = angles[best_score]
-    return best_arm_angle, best_elbow_angle
+    return best_angles
