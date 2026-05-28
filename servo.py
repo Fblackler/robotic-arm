@@ -156,9 +156,7 @@ def smart_read(self, register, size):
 # ====================================================================
 def hobby_write_position(self, position):
 
-    angle = int(position)
-
-    command = f"{self.id}:{angle}\n"
+    command = f"{self.id}:{position:.2f}\n"
 
     self.ser.write(command.encode())
 

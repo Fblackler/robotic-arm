@@ -38,7 +38,7 @@ def kin_to_cmd(sdef, name, kin_deg):
 
 
 def send_servo(servo_id, angle_cmd):
-    ser.write(f"{servo_id}:{int(angle_cmd)}\n".encode())
+    ser.write(f"{servo_id}:{angle_cmd:.2f}\n".encode())
 
 
 # =========================================================
