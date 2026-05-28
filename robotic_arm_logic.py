@@ -87,13 +87,13 @@ SERVOS = {
             conversion_angle=-40
         ),
 
-    "Hand": 
+    "Hand":
         Servo(
             5,
             "hobby",
             limits=(0, 270),
             default_pos=130,
-            conversion_angle=0
+            conversion_angle=90
         )
 }
 
