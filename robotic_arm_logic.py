@@ -87,7 +87,7 @@ SERVOS = {
             conversion_angle=-40
         ),
 
-    "Hand":
+    "Hand": 
         Servo(
             5,
             "hobby",
@@ -271,12 +271,44 @@ def inverse_kinematics(target_pos, target_pitch, target_yaw, target_roll=SERVOS[
         math.sin(target_pitch)
     ])
 
-    forearm_angle = math.atan2(np.dot(target_dir, up), np.dot(target_dir, right))
-
+    fa        = math.atan2(np.dot(target_dir, up), np.dot(target_dir, right))
     wrist_angle = math.acos(np.clip(np.dot(target_dir, forearm_axis), -1.0, 1.0))
 
+    # Two equivalent options: (fa, wa) and (fa+180°, -wa).
+    # Both achieve the same hand direction — pick whichever servo commands are in range,
+    # preferring the one closest to the forearm's default position.
+    fa_b = fa + math.pi
+    if fa_b > math.pi:
+        fa_b -= 2 * math.pi
+
+    _fs = SERVOS["Forearm"]
+    _ws = SERVOS["Wrist"]
+
+    def _cmd(sdef, kin_deg):
+        return kin_deg - sdef.conversion_angle + sdef.default_pos
+
+    def _ok(sdef, kin_deg):
+        c = _cmd(sdef, kin_deg)
+        return sdef.limits[0] <= c <= sdef.limits[1]
+
+    ok_a = _ok(_fs, math.degrees(fa))   and _ok(_ws,  math.degrees(wrist_angle))
+    ok_b = _ok(_fs, math.degrees(fa_b)) and _ok(_ws, -math.degrees(wrist_angle))
+
+    if ok_a and ok_b:
+        effort_a = abs(_cmd(_fs, math.degrees(fa))   - _fs.default_pos)
+        effort_b = abs(_cmd(_fs, math.degrees(fa_b)) - _fs.default_pos)
+        forearm_angle = fa   if effort_a <= effort_b else fa_b
+        wrist_angle   = wrist_angle if effort_a <= effort_b else -wrist_angle
+    elif ok_a:
+        forearm_angle = fa
+    elif ok_b:
+        forearm_angle = fa_b
+        wrist_angle   = -wrist_angle
+    else:
+        forearm_angle = fa  # both out of range — let limit check report it
+
     tilt_dir  =  math.cos(forearm_angle) * right + math.sin(forearm_angle) * up
-    target_up = -math.sin(target_roll)  * right + math.cos(target_roll)   * up
+    target_up = -math.sin(target_roll)   * right + math.cos(target_roll)   * up
     hand_angle = math.atan2(
         np.dot(np.cross(tilt_dir, target_up), target_dir),
         np.dot(tilt_dir, target_up)

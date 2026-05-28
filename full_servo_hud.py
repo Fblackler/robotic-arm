@@ -105,7 +105,7 @@ HTML = """
     background: #111;
     color: #ddd;
     padding: 30px;
-    max-width: 680px;
+    max-width: 780px;
   }
   h1 { color: #fff; margin-bottom: 4px; }
   .subtitle { color: #555; font-size: 13px; margin-bottom: 28px; }
@@ -122,7 +122,7 @@ HTML = """
   .form-row {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
     margin-bottom: 12px;
   }
   .form-label {
@@ -132,23 +132,24 @@ HTML = """
     flex-shrink: 0;
   }
   input[type=number] {
-    width: 110px;
-    padding: 7px 10px;
+    width: 90px;
+    padding: 6px 8px;
     background: #1e1e1e;
     border: 1px solid #333;
     border-radius: 4px;
     color: #fff;
-    font-size: 14px;
+    font-size: 13px;
     font-family: monospace;
+    flex-shrink: 0;
   }
-  input[type=number]:focus {
-    outline: none;
-    border-color: #39f;
+  input[type=number]:focus { outline: none; border-color: #39f; }
+  input[type=range] {
+    flex: 1;
+    accent-color: #39f;
+    cursor: pointer;
+    min-width: 0;
   }
-  .limits {
-    font-size: 11px;
-    color: #444;
-  }
+  .limits { font-size: 11px; color: #444; flex-shrink: 0; }
 
   #send-btn {
     margin-top: 20px;
@@ -200,36 +201,42 @@ HTML = """
 <div class="form-row">
   <span class="form-label">X (mm)</span>
   <input type="number" id="X" value="300" step="5">
-  <span class="limits">−700 to 700</span>
+  <input type="range" id="X-s" min="-1000" max="1000" step="5" value="300">
+  <span class="limits">±1000</span>
 </div>
 <div class="form-row">
   <span class="form-label">Y (mm)</span>
   <input type="number" id="Y" value="0" step="5">
-  <span class="limits">−700 to 700</span>
+  <input type="range" id="Y-s" min="-1000" max="1000" step="5" value="0">
+  <span class="limits">±1000</span>
 </div>
 <div class="form-row">
   <span class="form-label">Z (mm)</span>
   <input type="number" id="Z" value="300" step="5">
-  <span class="limits">0 to 700</span>
+  <input type="range" id="Z-s" min="0" max="1000" step="5" value="300">
+  <span class="limits">0 – 1000</span>
 </div>
 
 <h2>Target Direction</h2>
 <div class="form-row">
   <span class="form-label">Pitch (°)</span>
   <input type="number" id="Pitch" value="-20" step="1">
-  <span class="limits">−90 to 90</span>
+  <input type="range" id="Pitch-s" min="-90" max="90" step="1" value="-20">
+  <span class="limits">±90°</span>
 </div>
 <div class="form-row">
   <span class="form-label">Yaw (°)</span>
   <input type="number" id="Yaw" value="0" step="1">
-  <span class="limits">−180 to 180</span>
+  <input type="range" id="Yaw-s" min="-180" max="180" step="1" value="0">
+  <span class="limits">±180°</span>
 </div>
 
 <h2>Movement</h2>
 <div class="form-row">
   <span class="form-label">Speed (°/s)</span>
   <input type="number" id="Speed" value="60" min="5" max="300" step="5">
-  <span class="limits">5 to 300</span>
+  <input type="range" id="Speed-s" min="5" max="300" step="5" value="60">
+  <span class="limits">5 – 300</span>
 </div>
 
 <button id="send-btn" onclick="sendIK()">Send to Robot</button>
@@ -240,26 +247,51 @@ HTML = """
 <table>
   <thead>
     <tr>
-      <th>Servo</th>
-      <th>Kinematic</th>
-      <th>Command</th>
-      <th>Limits</th>
-      <th></th>
+      <th>Servo</th><th>Kinematic</th><th>Command</th><th>Limits</th><th></th>
     </tr>
   </thead>
   <tbody id="servo-table">
     <tr><td colspan="5" class="dim" style="text-align:center;padding:14px">
-      Press Send to compute IK
+      Move a slider or press Send
     </td></tr>
   </tbody>
 </table>
 
 <script>
+const FIELDS = ["X", "Y", "Z", "Pitch", "Yaw", "Speed"];
+let debounce = null;
+
 function val(id) { return parseFloat(document.getElementById(id).value) || 0; }
 
+function clampToSlider(id, v) {
+  const s = document.getElementById(id + "-s");
+  return Math.max(parseFloat(s.min), Math.min(parseFloat(s.max), v));
+}
+
+// Wire each field: number ↔ slider, both trigger debounced send
+FIELDS.forEach(id => {
+  const num = document.getElementById(id);
+  const sld = document.getElementById(id + "-s");
+
+  num.addEventListener("input", () => {
+    sld.value = clampToSlider(id, parseFloat(num.value) || 0);
+    scheduleSend();
+  });
+
+  sld.addEventListener("input", () => {
+    num.value = sld.value;
+    scheduleSend();
+  });
+});
+
+function scheduleSend() {
+  clearTimeout(debounce);
+  debounce = setTimeout(sendIK, 80);
+}
+
 function sendIK() {
+  clearTimeout(debounce);
   const btn = document.getElementById("send-btn");
-  btn.textContent = "Sending…";
   btn.disabled = true;
 
   fetch("/ik", {
@@ -272,40 +304,27 @@ function sendIK() {
     })
   })
   .then(r => r.json())
-  .then(data => {
-    updateDisplay(data);
-    btn.textContent = "Send to Robot";
-    btn.disabled = false;
-  })
-  .catch(err => {
+  .then(data => { updateDisplay(data); btn.disabled = false; })
+  .catch(() => {
     document.getElementById("status").className = "error";
     document.getElementById("status").textContent = "Network error";
-    btn.textContent = "Send to Robot";
     btn.disabled = false;
   });
 }
 
-// Allow Enter key to submit
-document.addEventListener("keydown", e => {
-  if (e.key === "Enter") sendIK();
-});
+document.addEventListener("keydown", e => { if (e.key === "Enter") sendIK(); });
 
 function updateDisplay(data) {
   const statusEl = document.getElementById("status");
-
   if (data.status === "error") {
     statusEl.className = "error";
     statusEl.textContent = "Error: " + data.message;
     return;
   }
-
-  if (data.status === "in_reach") {
-    statusEl.className = "in-reach";
-    statusEl.textContent = "IN REACH — moving to position";
-  } else {
-    statusEl.className = "out-reach";
-    statusEl.textContent = "OUT OF REACH: " + data.out_of_range.join(", ");
-  }
+  statusEl.className = data.status === "in_reach" ? "in-reach" : "out-reach";
+  statusEl.textContent = data.status === "in_reach"
+    ? "IN REACH — moving to position"
+    : "OUT OF REACH: " + data.out_of_range.join(", ");
 
   const tbody = document.getElementById("servo-table");
   tbody.innerHTML = "";
