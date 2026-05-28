@@ -170,8 +170,8 @@ def forward_kinematics(SERVOS):
     up = np.cross(forearm_axis, right)
 
     offset = (
-        -radius * math.sin(forearm_angle) * right +
-         radius * math.cos(forearm_angle) * up
+        radius * math.cos(forearm_angle) * right +
+        radius * math.sin(forearm_angle) * up
     )
 
     forward = reach * forearm_axis
@@ -196,7 +196,48 @@ def inverse_kinematics(target_pos, target_pitch, target_yaw, target_roll=SERVOS[
     base_angle = math.atan2(wrist_pos["y"], wrist_pos["x"])
     base_pos = {"x": 0, "y": 0, "z": 0}
     arm_pos = {"x": 0, "y": 0, "z": base_height}
-    arm_angle, elbow_angle = optimal_arm_to_forearm_angle(wrist_pos, base_angle, arm_pos)
+
+    (score_a, sol_a), (score_b, sol_b) = optimal_arm_to_forearm_angle(wrist_pos, base_angle, arm_pos)
+
+    GOOD_ENOUGH = 20  # mm — maximum acceptable wrist position error
+
+    def forearm_angle_for(arm_ang, elbow_ang):
+        ar = math.radians(arm_ang)
+        er = math.radians(elbow_ang) + ar
+        ep = {
+            "x": arm_pos["x"] + arm_length * math.cos(ar) * math.cos(base_angle),
+            "y": arm_pos["y"] + arm_length * math.cos(ar) * math.sin(base_angle),
+            "z": arm_pos["z"] + arm_length * math.sin(ar),
+        }
+        fp = {
+            "x": ep["x"] + elbow_length * math.cos(er) * math.cos(base_angle),
+            "y": ep["y"] + elbow_length * math.cos(er) * math.sin(base_angle),
+            "z": ep["z"] + elbow_length * math.sin(er),
+        }
+        fax = normalise(np.array([
+            wrist_pos["x"] - fp["x"],
+            wrist_pos["y"] - fp["y"],
+            wrist_pos["z"] - fp["z"],
+        ]))
+        r = np.array([-math.sin(base_angle), math.cos(base_angle), 0.0])
+        u = np.cross(fax, r)
+        td = np.array([
+            math.cos(target_pitch) * math.cos(target_yaw),
+            math.cos(target_pitch) * math.sin(target_yaw),
+            math.sin(target_pitch),
+        ])
+        return math.atan2(np.dot(td, u), np.dot(td, r))
+
+    fa_a = forearm_angle_for(*sol_a)
+    fa_b = forearm_angle_for(*sol_b)
+
+    both_valid = score_a < GOOD_ENOUGH and score_b < GOOD_ENOUGH
+    if both_valid:
+        arm_angle, elbow_angle = sol_a if abs(fa_a) <= abs(fa_b) else sol_b
+    elif score_a <= score_b:
+        arm_angle, elbow_angle = sol_a
+    else:
+        arm_angle, elbow_angle = sol_b
 
     arm_angle_r   = math.radians(arm_angle)
     elbow_angle_r = math.radians(elbow_angle) + arm_angle_r
@@ -228,12 +269,12 @@ def inverse_kinematics(target_pos, target_pitch, target_yaw, target_roll=SERVOS[
         math.sin(target_pitch)
     ])
 
-    forearm_angle = math.atan2(-np.dot(target_dir, right), np.dot(target_dir, up))
+    forearm_angle = math.atan2(np.dot(target_dir, up), np.dot(target_dir, right))
 
     wrist_angle = math.acos(np.clip(np.dot(target_dir, forearm_axis), -1.0, 1.0))
 
-    tilt_dir  = -math.sin(forearm_angle) * right + math.cos(forearm_angle) * up
-    target_up = -math.sin(target_roll)   * right + math.cos(target_roll)   * up
+    tilt_dir  = math.cos(forearm_angle) * right + math.sin(forearm_angle) * up
+    target_up = math.cos(target_roll)   * right + math.sin(target_roll)   * up
     hand_angle = math.atan2(
         np.dot(np.cross(tilt_dir, target_up), target_dir),
         np.dot(tilt_dir, target_up)
@@ -258,8 +299,9 @@ def optimal_arm_to_forearm_angle(wrist_pos, base_angle, arm_pos):
     elbow_kin_min = round(elbow_s.conversion_angle + (elbow_s.limits[0] - elbow_s.default_pos))
     elbow_kin_max = round(elbow_s.conversion_angle + (elbow_s.limits[1] - elbow_s.default_pos))
 
-    best_score  = float("inf")
-    best_angles = (arm_kin_min, elbow_kin_min)
+    # Track best solution per elbow branch — store (score, angles)
+    best_neg = [float("inf"), None]  # elbow_angle < 0
+    best_pos = [float("inf"), None]  # elbow_angle >= 0
 
     for arm_angle in range(arm_kin_min, arm_kin_max + 1, 2):
         arm_angle_r = math.radians(arm_angle)
@@ -286,10 +328,15 @@ def optimal_arm_to_forearm_angle(wrist_pos, base_angle, arm_pos):
                 abs(sup_wrist["y"] - wrist_pos["y"]) +
                 abs(sup_wrist["z"] - wrist_pos["z"])
             )
-            if score < best_score:
-                best_score  = score
-                best_angles = (arm_angle, elbow_angle)
-                if best_score < 5.0:
-                    return best_angles
+            bucket = best_neg if elbow_angle < 0 else best_pos
+            if score < bucket[0]:
+                bucket[0] = score
+                bucket[1] = (arm_angle, elbow_angle)
 
-    return best_angles
+    # Fall back to the other branch if one found nothing
+    if best_neg[1] is None:
+        best_neg[1] = best_pos[1]
+    if best_pos[1] is None:
+        best_pos[1] = best_neg[1]
+
+    return (best_neg[0], best_neg[1]), (best_pos[0], best_pos[1])
