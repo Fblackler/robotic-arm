@@ -69,13 +69,13 @@ SERVOS = {
             conversion_angle=-44
         ),
 
-    "Forearm": 
+    "Forearm":
         Servo(
             3,
             "hobby",
             limits=(0, 270),
             default_pos=126,
-            conversion_angle=0
+            conversion_angle=90
         ),
 
     "Wrist": 
