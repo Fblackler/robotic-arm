@@ -75,7 +75,7 @@ SERVOS = {
             "hobby",
             limits=(0, 270),
             default_pos=126,
-            conversion_angle=90
+            conversion_angle=0
         ),
 
     "Wrist": 
@@ -275,8 +275,8 @@ def inverse_kinematics(target_pos, target_pitch, target_yaw, target_roll=SERVOS[
 
     wrist_angle = math.acos(np.clip(np.dot(target_dir, forearm_axis), -1.0, 1.0))
 
-    tilt_dir  = math.cos(forearm_angle) * right + math.sin(forearm_angle) * up
-    target_up = math.cos(target_roll)   * right + math.sin(target_roll)   * up
+    tilt_dir  =  math.cos(forearm_angle) * right + math.sin(forearm_angle) * up
+    target_up = -math.sin(target_roll)  * right + math.cos(target_roll)   * up
     hand_angle = math.atan2(
         np.dot(np.cross(tilt_dir, target_up), target_dir),
         np.dot(tilt_dir, target_up)
