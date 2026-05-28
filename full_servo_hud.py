@@ -28,8 +28,13 @@ SERVO_NAMES = ["Base", "Arm", "Elbow", "Forearm", "Wrist", "Hand"]
 SERVO_IDS   = {"Base": 0, "Arm": 1, "Elbow": 2, "Forearm": 3, "Wrist": 4, "Hand": 5}
 
 
-def kin_to_cmd(sdef, kin_deg):
-    return kin_deg - sdef.conversion_angle + sdef.default_pos
+FLIPPED = {"Arm"}
+
+def kin_to_cmd(sdef, name, kin_deg):
+    cmd = kin_deg - sdef.conversion_angle + sdef.default_pos
+    if name in FLIPPED:
+        cmd = 2 * sdef.default_pos - cmd
+    return cmd
 
 
 def send_servo(servo_id, angle_cmd):
@@ -351,7 +356,7 @@ def ik_route():
                 continue
             sdef = SERVO_DEFS[name]
             kin  = ik[name]
-            cmd  = kin_to_cmd(sdef, kin)
+            cmd  = kin_to_cmd(sdef, name, kin)
             ok   = sdef.limits[0] <= cmd <= sdef.limits[1]
             servos[name] = {
                 "kin": round(float(kin), 1),
