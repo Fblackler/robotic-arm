@@ -289,48 +289,50 @@ def home():
 
 @app.route("/ik", methods=["POST"])
 def ik_route():
-    data = request.json
-    target_pos   = {"x": float(data["x"]), "y": float(data["y"]), "z": float(data["z"])}
-    target_pitch = math.radians(float(data["pitch"]))
-    target_yaw   = math.radians(float(data["yaw"]))
-
     try:
+        data = request.json
+        target_pos   = {"x": float(data["X"]), "y": float(data["Y"]), "z": float(data["Z"])}
+        target_pitch = math.radians(float(data["Pitch"]))
+        target_yaw   = math.radians(float(data["Yaw"]))
+
         ik = inverse_kinematics(target_pos, target_pitch, target_yaw)
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
 
-    out_of_range = []
-    servos = {}
+        out_of_range = []
+        servos = {}
 
-    for name in SERVO_NAMES:
-        if name not in ik:
-            continue
-        sdef = SERVO_DEFS[name]
-        kin  = ik[name]
-        cmd  = kin_to_cmd(sdef, kin)
-        ok   = sdef.limits[0] <= cmd <= sdef.limits[1]
-        servos[name] = {
-            "kin": round(kin, 1),
-            "cmd": round(cmd),
-            "min": sdef.limits[0],
-            "max": sdef.limits[1],
-            "ok":  ok,
+        for name in SERVO_NAMES:
+            if name not in ik:
+                continue
+            sdef = SERVO_DEFS[name]
+            kin  = ik[name]
+            cmd  = kin_to_cmd(sdef, kin)
+            ok   = sdef.limits[0] <= cmd <= sdef.limits[1]
+            servos[name] = {
+                "kin": round(float(kin), 1),
+                "cmd": round(float(cmd)),
+                "min": sdef.limits[0],
+                "max": sdef.limits[1],
+                "ok":  ok,
+            }
+            if not ok:
+                out_of_range.append(name)
+
+        if not out_of_range:
+            for name, s in servos.items():
+                send_servo(SERVO_IDS[name], s["cmd"])
+
+        response = {
+            "status":       "in_reach" if not out_of_range else "out_of_reach",
+            "out_of_range": out_of_range,
+            "servos":       servos,
+            "target":       data,
         }
-        if not ok:
-            out_of_range.append(name)
+        app.config["last_state"] = response
+        return jsonify(response)
 
-    if not out_of_range:
-        for name, s in servos.items():
-            send_servo(SERVO_IDS[name], s["cmd"])
-
-    response = {
-        "status":       "in_reach" if not out_of_range else "out_of_reach",
-        "out_of_range": out_of_range,
-        "servos":       servos,
-        "target":       data,
-    }
-    app.config["last_state"] = response
-    return jsonify(response)
+    except Exception as e:
+        import traceback
+        return jsonify({"status": "error", "message": str(e), "trace": traceback.format_exc()}), 200
 
 
 @app.route("/state", methods=["GET"])
