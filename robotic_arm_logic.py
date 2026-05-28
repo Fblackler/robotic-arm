@@ -93,7 +93,7 @@ SERVOS = {
             "hobby",
             limits=(0, 270),
             default_pos=130,
-            conversion_angle=90
+            conversion_angle=0
         )
 }
 
