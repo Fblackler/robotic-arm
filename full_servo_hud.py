@@ -366,9 +366,10 @@ def ik_route():
         target_pos   = {"x": float(data["X"]), "y": float(data["Y"]), "z": float(data["Z"])}
         target_pitch = math.radians(float(data["Pitch"]))
         target_yaw   = math.radians(float(data["Yaw"]))
+        target_roll  = float(data.get("Roll", SERVO_DEFS["Hand"].position))
         speed_pct    = float(data.get("Speed", 50))
 
-        ik = inverse_kinematics(target_pos, target_pitch, target_yaw)
+        ik = inverse_kinematics(target_pos, target_pitch, target_yaw, target_roll=target_roll)
 
         out_of_range = []
         servos = {}
