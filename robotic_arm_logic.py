@@ -75,7 +75,7 @@ SERVOS = {
             "hobby",
             limits=(0, 270),
             default_pos=126,
-            conversion_angle=0
+            conversion_angle=90
         ),
 
     "Wrist": 
