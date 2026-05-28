@@ -52,11 +52,9 @@ _move_thread = None
 _stop_event  = threading.Event()
 _cmd_lock    = threading.Lock()
 
-STEP_DEG = 1  # degrees per step (resolution of each increment)
-
-
-def move_to(target_cmds, speed_deg_s=60.0):
-    """Spin up a background thread that steps every servo toward target_cmds."""
+def move_to(target_cmds, speed_pct=50.0):
+    """Move all servos to target_cmds, synchronized so they all finish at the same time.
+    speed_pct: 1-100, where 100 is fastest (~10ms per step)."""
     global _move_thread
 
     _stop_event.set()
@@ -64,26 +62,31 @@ def move_to(target_cmds, speed_deg_s=60.0):
         _move_thread.join(timeout=1.0)
     _stop_event.clear()
 
-    delay = STEP_DEG / max(speed_deg_s, 1.0)
+    with _cmd_lock:
+        deltas = {name: target - current_cmds[name] for name, target in target_cmds.items()}
+
+    max_delta = max((abs(d) for d in deltas.values()), default=0)
+    if max_delta < 0.5:
+        return
+
+    n_steps    = max(1, round(max_delta))
+    step_sizes = {name: d / n_steps for name, d in deltas.items()}
+    step_delay = 0.01 / max(0.01, speed_pct / 100.0)
 
     def _run():
-        while not _stop_event.is_set():
-            all_done = True
+        for _ in range(n_steps):
+            if _stop_event.is_set():
+                break
+            with _cmd_lock:
+                for name, step in step_sizes.items():
+                    current_cmds[name] += step
+                    send_servo(SERVO_IDS[name], current_cmds[name])
+            time.sleep(step_delay)
+        if not _stop_event.is_set():
             with _cmd_lock:
                 for name, tgt in target_cmds.items():
-                    curr = current_cmds[name]
-                    diff = tgt - curr
-                    if abs(diff) <= STEP_DEG:
-                        current_cmds[name] = tgt
-                        step_val = tgt
-                    else:
-                        step_val = curr + STEP_DEG * (1 if diff > 0 else -1)
-                        current_cmds[name] = step_val
-                        all_done = False
-                    send_servo(SERVO_IDS[name], step_val)
-            if all_done:
-                break
-            time.sleep(delay)
+                    current_cmds[name] = tgt
+                    send_servo(SERVO_IDS[name], tgt)
 
     _move_thread = threading.Thread(target=_run, daemon=True)
     _move_thread.start()
@@ -233,10 +236,10 @@ HTML = """
 
 <h2>Movement</h2>
 <div class="form-row">
-  <span class="form-label">Speed (°/s)</span>
-  <input type="number" id="Speed" value="60" min="5" max="300" step="5">
-  <input type="range" id="Speed-s" min="5" max="300" step="5" value="60">
-  <span class="limits">5 – 300</span>
+  <span class="form-label">Speed (%)</span>
+  <input type="number" id="Speed" value="50" min="1" max="100" step="1">
+  <input type="range" id="Speed-s" min="1" max="100" step="1" value="50">
+  <span class="limits">1 – 100%</span>
 </div>
 
 <button id="send-btn" onclick="sendIK()">Send to Robot</button>
@@ -363,7 +366,7 @@ def ik_route():
         target_pos   = {"x": float(data["X"]), "y": float(data["Y"]), "z": float(data["Z"])}
         target_pitch = math.radians(float(data["Pitch"]))
         target_yaw   = math.radians(float(data["Yaw"]))
-        speed        = float(data.get("Speed", 60))
+        speed_pct    = float(data.get("Speed", 50))
 
         ik = inverse_kinematics(target_pos, target_pitch, target_yaw)
 
@@ -388,7 +391,7 @@ def ik_route():
                 out_of_range.append(name)
 
         if not out_of_range:
-            move_to({name: s["cmd"] for name, s in servos.items()}, speed)
+            move_to({name: s["cmd"] for name, s in servos.items()}, speed_pct)
 
         response = {
             "status":       "in_reach" if not out_of_range else "out_of_reach",
