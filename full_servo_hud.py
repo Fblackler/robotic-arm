@@ -10,7 +10,7 @@ from robotic_arm_logic import inverse_kinematics, SERVOS as SERVO_DEFS
 # Serial
 # =========================================================
 
-HOBBY_PORT = "/dev/tty.usbserial-10"
+HOBBY_PORT = "/dev/ttyUSB0"
 HOBBY_BAUD = 115200
 
 ser = serial.Serial(HOBBY_PORT, HOBBY_BAUD, timeout=1)
