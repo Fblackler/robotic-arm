@@ -145,12 +145,12 @@ def main():
     t.start()
 
     # Control state
-    r     = 300.0
-    theta = 0.0
-    z     = 350.0
-    pitch = -20.0
-    yaw   =   0.0
-    roll  =   0.0
+    r          = 300.0
+    theta      = 0.0    # arm base rotation (radians)
+    z          = 350.0
+    pitch      = -20.0
+    yaw_offset =   0.0  # yaw relative to arm direction
+    roll       =   0.0
 
     while True:
         t0 = time.time()
@@ -160,21 +160,25 @@ def main():
         rx = dead(axis(AX_RX, absinfo))
         ry = dead(axis(AX_RY, absinfo))
 
-        r     += -ly * R_RATE     * DT   # up = -1 → further
-        theta +=  lx * THETA_RATE * DT
-        z     += (-btn(BTN_A) + btn(BTN_Y)) * Z_RATE * DT
-        pitch += -ry * PITCH_RATE * DT
-        roll  +=  rx * ROLL_RATE  * DT
-        yaw   += (-btn(BTN_LB) + btn(BTN_RB)) * YAW_RATE * DT
+        # Snapshot before applying deltas — restored if out of reach
+        saved = (r, theta, z, pitch, yaw_offset, roll)
 
-        r     = max(50.0,   min(900.0,  r))
-        z     = max(0.0,    min(900.0,  z))
-        pitch = max(-90.0,  min(90.0,   pitch))
-        roll  = max(-180.0, min(180.0,  roll))
-        yaw   = max(-180.0, min(180.0,  yaw))
+        r          += -ly * R_RATE     * DT
+        theta      +=  lx * THETA_RATE * DT
+        z          += (-btn(BTN_A) + btn(BTN_Y)) * Z_RATE * DT
+        pitch      += -ry * PITCH_RATE * DT
+        roll       +=  rx * ROLL_RATE  * DT
+        yaw_offset += (-btn(BTN_LB) + btn(BTN_RB)) * YAW_RATE * DT
 
-        x = r * math.cos(theta)
-        y = r * math.sin(theta)
+        r          = max(50.0,   min(900.0,  r))
+        z          = max(0.0,    min(900.0,  z))
+        pitch      = max(-90.0,  min(90.0,   pitch))
+        roll       = max(-180.0, min(180.0,  roll))
+        yaw_offset = max(-90.0,  min(90.0,   yaw_offset))
+
+        x   = r * math.cos(theta)
+        y   = r * math.sin(theta)
+        yaw = math.degrees(theta) + yaw_offset
 
         result = post_ik(x, y, z, pitch, yaw, roll)
         status = "no response"
@@ -183,10 +187,14 @@ def main():
             oob = result.get("out_of_range", [])
             if oob:
                 status += f" [{', '.join(oob)}]"
+            if result.get("status") != "in_reach":
+                r, theta, z, pitch, yaw_offset, roll = saved
+        else:
+            r, theta, z, pitch, yaw_offset, roll = saved
 
         print(
             f"\r  r={r:5.0f}  θ={math.degrees(theta):6.1f}°  z={z:5.0f}"
-            f"  p={pitch:5.1f}°  y={yaw:5.1f}°  roll={roll:5.1f}°"
+            f"  p={pitch:5.1f}°  yaw={yaw:6.1f}°  roll={roll:5.1f}°"
             f"  | {status:<35}",
             end=""
         )
