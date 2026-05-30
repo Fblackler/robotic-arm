@@ -169,11 +169,17 @@ def start_gui():
 # =========================================================
 
 if __name__ == "__main__":
-    flask_thread = threading.Thread(
-        target=lambda: app.run(host="0.0.0.0", port=8081, threaded=True),
-        daemon=True
-    )
-    flask_thread.start()
-    print("Pincher web interface running on port 8081")
+    import os
+    has_display = bool(os.environ.get("DISPLAY"))
 
-    start_gui()
+    if has_display:
+        flask_thread = threading.Thread(
+            target=lambda: app.run(host="0.0.0.0", port=8081, threaded=True),
+            daemon=True
+        )
+        flask_thread.start()
+        print("Pincher web interface running on port 8081")
+        start_gui()
+    else:
+        print("No display — running web interface only on port 8081")
+        app.run(host="0.0.0.0", port=8081, threaded=True)
