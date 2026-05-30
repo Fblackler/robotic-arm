@@ -76,40 +76,60 @@ def pincher_write(position, time_ms=300):
     pkt.append(_smart_checksum(pkt[2:]))
     smart_ser.write(bytes(pkt))
 
-def pincher_read_temp():
+def _smart_read(register, size):
     if not smart_ser:
         return None
     try:
-        pkt = [0xFF, 0xFF, SMART_ID, 4, 0x02, 0x3F, 1]
+        pkt = [0xFF, 0xFF, SMART_ID, 4, 0x02, register, size]
         pkt.append(_smart_checksum(pkt[2:]))
         smart_ser.reset_input_buffer()
         smart_ser.write(bytes(pkt))
-        resp = smart_ser.read(7)
-        return resp[5] if len(resp) == 7 else None
+        resp = smart_ser.read(6 + size)
+        if len(resp) != 6 + size:
+            return None
+        return resp[5] if size == 1 else resp[5] | (resp[6] << 8)
     except Exception:
         return None
 
+def pincher_read_temp():
+    v = _smart_read(0x3F, 1)
+    return int(v) if v is not None else None
+
+def pincher_read_voltage():
+    v = _smart_read(0x3E, 1)
+    return round(v / 10.0, 1) if v is not None else None   # 0.1V units
+
+def pincher_read_load():
+    v = _smart_read(0x3C, 2)
+    if v is None:
+        return None
+    return round((v & 0x3FF) / 10.0, 1)   # bits 0-9 → 0-100%
+
 
 # =========================================================
-# Temperature history (background polling every 2 s)
+# Unified metrics history (polling every 2 s)
 # =========================================================
 
-_temp_history = []   # list of {"t": epoch_s, "c": celsius}
-_temp_lock    = threading.Lock()
-_pincher_pos  = PINCHER_DEF
+_metrics   = []   # [{t, temp, volts, load, angles:{name:cmd}}]
+_m_lock    = threading.Lock()
+_pincher_pos = PINCHER_DEF
 
-def _temp_poller():
+def _metrics_poller():
     while True:
-        temp = pincher_read_temp()
-        if temp is not None:
-            with _temp_lock:
-                _temp_history.append({"t": time.time(), "c": int(temp)})
-                if len(_temp_history) > 60:
-                    _temp_history.pop(0)
+        temp  = pincher_read_temp()
+        volts = pincher_read_voltage()
+        load  = pincher_read_load()
+        with _cmd_lock:
+            angles = {n: round(v, 1) for n, v in current_cmds.items()}
+        entry = {"t": time.time(), "temp": temp, "volts": volts,
+                 "load": load, "angles": angles}
+        with _m_lock:
+            _metrics.append(entry)
+            if len(_metrics) > 60:
+                _metrics.pop(0)
         time.sleep(2)
 
-_tp = threading.Thread(target=_temp_poller, daemon=True)
-_tp.start()
+threading.Thread(target=_metrics_poller, daemon=True).start()
 
 
 # =========================================================
@@ -272,18 +292,28 @@ HTML = """
            background: #1e1e1e; color: #ddd; font-size: 13px; cursor: pointer; }
   .p-btn:hover { background: #2a2a2a; }
 
-  /* Temperature */
-  #temp-section { margin-top: 32px; }
-  #temp-value { font-size: 42px; font-weight: bold; font-family: monospace;
-                text-align: center; padding: 10px 0; }
+  /* Graph tabs */
+  #graph-section { margin-top: 32px; }
+  .graph-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+  .tab-btn { padding: 7px 18px; background: #1e1e1e; border: 1px solid #333;
+             border-radius: 4px; color: #666; cursor: pointer; font-size: 12px;
+             letter-spacing: 0.5px; }
+  .tab-btn.active { background: #1a3a5a; border-color: #39f; color: #7cf; }
+  .graph-canvas { width: 100%; height: 130px; background: #111;
+                  border: 1px solid #222; border-radius: 4px; display: none; }
+  .graph-canvas.active { display: block; }
+  #temp-readout { font-size: 36px; font-weight: bold; font-family: monospace;
+                  text-align: center; padding: 6px 0; }
   .temp-ok   { color: #3d3; }
   .temp-warn { color: #fa4; }
   .temp-crit { color: #f33; }
   #temp-alert { display: none; background: #4a0000; color: #f66; border: 1px solid #f33;
-                border-radius: 6px; padding: 12px; text-align: center;
+                border-radius: 6px; padding: 10px; text-align: center;
                 font-weight: bold; margin-bottom: 10px; }
-  #temp-canvas { width: 100%; height: 120px; background: #1a1a1a;
-                 border: 1px solid #2a2a2a; border-radius: 4px; display: block; }
+  .graph-legend { display: flex; gap: 14px; flex-wrap: wrap;
+                  font-size: 11px; color: #555; margin-top: 5px; }
+  .legend-dot { display: inline-block; width: 10px; height: 10px;
+                border-radius: 50%; margin-right: 4px; }
 </style>
 </head>
 <body>
@@ -370,18 +400,28 @@ HTML = """
 </div>
 
 <!-- ======================================================= -->
-<!-- Temperature                                              -->
+<!-- Graphs                                                   -->
 <!-- ======================================================= -->
-<div id="temp-section">
-  <h2>Pincher Temperature</h2>
+<div id="graph-section">
+  <h2>Monitoring</h2>
+
   <div id="temp-alert">⚠ TEMPERATURE CRITICAL — let the servo cool down!</div>
-  <div id="temp-value" class="temp-ok">— °C</div>
-  <canvas id="temp-canvas" width="720" height="120"></canvas>
-  <div style="display:flex;justify-content:space-between;font-size:10px;color:#444;margin-top:4px;">
-    <span>2 min ago</span>
-    <span style="color:#fa4">warn 55°C</span>
-    <span style="color:#f33">crit 65°C</span>
-    <span>now</span>
+  <div id="temp-readout" class="temp-ok">— °C</div>
+
+  <div class="graph-tabs">
+    <button class="tab-btn active" onclick="switchTab('temp')">Temperature</button>
+    <button class="tab-btn"        onclick="switchTab('power')">Power</button>
+    <button class="tab-btn"        onclick="switchTab('angles')">Servo Angles</button>
+  </div>
+
+  <canvas id="g-temp"   class="graph-canvas active" width="720" height="130"></canvas>
+  <canvas id="g-power"  class="graph-canvas"        width="720" height="130"></canvas>
+  <canvas id="g-angles" class="graph-canvas"        width="720" height="130"></canvas>
+
+  <div class="graph-legend" id="graph-legend">
+    <span><span class="legend-dot" style="background:#fa4"></span>warn 55°C</span>
+    <span><span class="legend-dot" style="background:#f33"></span>crit 65°C</span>
+    <span style="color:#444;margin-left:auto">← 2 min</span>
   </div>
 </div>
 
@@ -458,73 +498,133 @@ function sendPincher() {
   });
 }
 
-// ---- Temperature graph ----
+// ---- Graph tabs ----
+const SERVO_COLORS = {
+  Base:"#4af", Arm:"#4f4", Elbow:"#fa4", Forearm:"#f4a", Wrist:"#a4f", Hand:"#4fa"
+};
 const TEMP_WARN = 55, TEMP_CRIT = 65;
-let tempHistory = [];
+let activeTab = "temp";
+let metricsData = [];
 
-function pollTemp() {
-  fetch("/temperature")
-    .then(r => r.json())
-    .then(d => {
-      tempHistory = d.history || [];
-      const cur = d.current;
-      const el  = document.getElementById("temp-value");
-      const alrt = document.getElementById("temp-alert");
-      if (cur === null) {
-        el.textContent = "— °C";
-        el.className = "temp-ok";
-      } else {
-        el.textContent = cur + " °C";
-        el.className = cur >= TEMP_CRIT ? "temp-crit" : cur >= TEMP_WARN ? "temp-warn" : "temp-ok";
-        alrt.style.display = cur >= TEMP_CRIT ? "block" : "none";
-      }
-      drawGraph(tempHistory);
-    })
-    .catch(() => {});
+function switchTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll(".tab-btn").forEach((b, i) => {
+    b.classList.toggle("active", ["temp","power","angles"][i] === tab);
+  });
+  document.querySelectorAll(".graph-canvas").forEach(c => c.classList.remove("active"));
+  document.getElementById("g-" + tab).classList.add("active");
+
+  const legend = document.getElementById("graph-legend");
+  if (tab === "temp") {
+    legend.innerHTML = '<span><span class="legend-dot" style="background:#fa4"></span>warn 55°C</span>' +
+      '<span><span class="legend-dot" style="background:#f33"></span>crit 65°C</span>' +
+      '<span style="color:#444;margin-left:auto">← 2 min</span>';
+  } else if (tab === "power") {
+    legend.innerHTML = '<span><span class="legend-dot" style="background:#4af"></span>Volts (V)</span>' +
+      '<span><span class="legend-dot" style="background:#fa4"></span>Load (%)</span>' +
+      '<span style="color:#444;margin-left:auto">← 2 min</span>';
+  } else {
+    legend.innerHTML = Object.entries(SERVO_COLORS).map(([n,c]) =>
+      `<span><span class="legend-dot" style="background:${c}"></span>${n}</span>`).join("") +
+      '<span style="color:#444;margin-left:auto">← 2 min</span>';
+  }
+  drawAll(metricsData);
 }
 
-function drawGraph(history) {
-  const canvas = document.getElementById("temp-canvas");
-  const ctx    = canvas.getContext("2d");
-  const W = canvas.width, H = canvas.height;
+function pollMetrics() {
+  fetch("/metrics").then(r => r.json()).then(d => {
+    metricsData = d.history || [];
+    const cur = d.current || {};
+    const temp = cur.temp;
+    const el   = document.getElementById("temp-readout");
+    const alrt = document.getElementById("temp-alert");
+    if (temp == null) { el.textContent = "— °C"; el.className = "temp-ok"; }
+    else {
+      el.textContent = temp + " °C";
+      el.className = temp >= TEMP_CRIT ? "temp-crit" : temp >= TEMP_WARN ? "temp-warn" : "temp-ok";
+    }
+    alrt.style.display = (temp != null && temp >= TEMP_CRIT) ? "block" : "none";
+    drawAll(metricsData);
+  }).catch(() => {});
+}
+
+function drawAll(h) { drawTemp(h); drawPower(h); drawAngles(h); }
+
+function baseGraph(ctx, W, H, h) {
   ctx.clearRect(0, 0, W, H);
+  if (!h.length) return null;
+  const now = h[h.length-1].t, tStart = now - 120;
+  return t => ((t - tStart) / 120) * W;
+}
 
-  // Temperature range 20–80°C displayed
-  const T_MIN = 20, T_MAX = 80;
-  const yOf = t => H - ((t - T_MIN) / (T_MAX - T_MIN)) * H;
-
-  // Warn / crit bands
-  ctx.fillStyle = "rgba(250,160,0,0.08)";
-  ctx.fillRect(0, yOf(TEMP_CRIT), W, yOf(TEMP_WARN) - yOf(TEMP_CRIT));
-  ctx.fillStyle = "rgba(220,0,0,0.12)";
-  ctx.fillRect(0, 0, W, yOf(TEMP_CRIT));
-
-  // Gridlines
-  [30, 40, 50, 55, 65, 70].forEach(t => {
-    ctx.strokeStyle = t === TEMP_WARN ? "#fa4" : t === TEMP_CRIT ? "#f33" : "#2a2a2a";
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(0, yOf(t)); ctx.lineTo(W, yOf(t)); ctx.stroke();
-  });
-
-  if (history.length < 2) return;
-
-  const now    = history[history.length - 1].t;
-  const tStart = now - 120;  // 2 minutes window
-  const xOf = t => ((t - tStart) / 120) * W;
-
+function linePath(ctx, h, xOf, yOf, key) {
   ctx.beginPath();
-  ctx.lineWidth = 2;
-  history.forEach((p, i) => {
-    const x = xOf(p.t), y = yOf(p.c);
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  let started = false;
+  h.forEach(p => {
+    const v = key(p);
+    if (v == null) { started = false; return; }
+    const x = xOf(p.t), y = yOf(v);
+    started ? ctx.lineTo(x, y) : (ctx.moveTo(x, y), started = true);
   });
-  const last = history[history.length - 1].c;
-  ctx.strokeStyle = last >= TEMP_CRIT ? "#f33" : last >= TEMP_WARN ? "#fa4" : "#3d3";
   ctx.stroke();
 }
 
-setInterval(pollTemp, 2000);
-pollTemp();
+function drawTemp(h) {
+  const cv = document.getElementById("g-temp");
+  const ctx = cv.getContext("2d"), W = cv.width, H = cv.height;
+  const xOf = baseGraph(ctx, W, H, h); if (!xOf) return;
+  const yOf = t => H - ((t - 20) / 60) * H;
+  ctx.fillStyle="rgba(250,160,0,0.07)"; ctx.fillRect(0,yOf(TEMP_CRIT),W,yOf(TEMP_WARN)-yOf(TEMP_CRIT));
+  ctx.fillStyle="rgba(220,0,0,0.10)";  ctx.fillRect(0,0,W,yOf(TEMP_CRIT));
+  [30,40,50,55,65,70].forEach(t => {
+    ctx.strokeStyle = t===TEMP_WARN?"#fa4":t===TEMP_CRIT?"#f33":"#222";
+    ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(0,yOf(t)); ctx.lineTo(W,yOf(t)); ctx.stroke();
+  });
+  if (h.length < 2) return;
+  const last = h[h.length-1].temp;
+  ctx.strokeStyle = last>=TEMP_CRIT?"#f33":last>=TEMP_WARN?"#fa4":"#3d3";
+  ctx.lineWidth = 2;
+  linePath(ctx, h, xOf, yOf, p => p.temp);
+}
+
+function drawPower(h) {
+  const cv = document.getElementById("g-power");
+  const ctx = cv.getContext("2d"), W = cv.width, H = cv.height;
+  const xOf = baseGraph(ctx, W, H, h); if (!xOf) return;
+  [0,25,50,75,100].forEach(v => {
+    ctx.strokeStyle="#1e1e1e"; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(0, H - v/100*H); ctx.lineTo(W, H - v/100*H); ctx.stroke();
+  });
+  if (h.length < 2) return;
+  // Voltage: scale 0–16V → 0–100%
+  ctx.strokeStyle="#4af"; ctx.lineWidth=2;
+  linePath(ctx, h, xOf, v => H - (v/16)*H, p => p.volts);
+  // Load: 0–100%
+  ctx.strokeStyle="#fa4"; ctx.lineWidth=2;
+  linePath(ctx, h, xOf, v => H - (v/100)*H, p => p.load);
+  // Axis labels
+  ctx.fillStyle="#4af"; ctx.font="10px monospace"; ctx.fillText("V", 4, 12);
+  ctx.fillStyle="#fa4"; ctx.fillText("%", 14, 12);
+}
+
+function drawAngles(h) {
+  const cv = document.getElementById("g-angles");
+  const ctx = cv.getContext("2d"), W = cv.width, H = cv.height;
+  const xOf = baseGraph(ctx, W, H, h); if (!xOf) return;
+  [0,90,180,270].forEach(v => {
+    ctx.strokeStyle="#1e1e1e"; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(0, H - (v/270)*H); ctx.lineTo(W, H - (v/270)*H); ctx.stroke();
+  });
+  if (h.length < 2) return;
+  Object.entries(SERVO_COLORS).forEach(([name, color]) => {
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+    linePath(ctx, h, xOf, v => H - (Math.max(0,Math.min(270,v))/270)*H,
+             p => p.angles ? p.angles[name] : null);
+  });
+}
+
+setInterval(pollMetrics, 2000);
+pollMetrics();
 
 function updateDisplay(data) {
   const statusEl = document.getElementById("status");
@@ -634,12 +734,23 @@ def pincher_route():
         return jsonify({"error": str(e)}), 200
 
 
+@app.route("/metrics", methods=["GET"])
+def metrics_route():
+    with _m_lock:
+        history = list(_metrics)
+    current = history[-1] if history else {}
+    return jsonify({"history": history, "current": current,
+                    "warn_temp": TEMP_WARN, "crit_temp": TEMP_CRIT})
+
+
 @app.route("/temperature", methods=["GET"])
 def temperature_route():
-    with _temp_lock:
-        history = list(_temp_history)
-    current = history[-1]["c"] if history else None
-    return jsonify({"current": current, "warn": TEMP_WARN, "crit": TEMP_CRIT, "history": history})
+    """Kept for backward compatibility."""
+    with _m_lock:
+        history = list(_metrics)
+    cur = history[-1]["temp"] if history else None
+    return jsonify({"current": cur, "warn": TEMP_WARN, "crit": TEMP_CRIT,
+                    "history": [{"t": e["t"], "c": e["temp"]} for e in history if e["temp"] is not None]})
 
 
 if __name__ == "__main__":
