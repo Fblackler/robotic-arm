@@ -1,7 +1,7 @@
 import tkinter as tk
 import threading
 import serial
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify
 
 # =========================================================
 # Serial
@@ -13,7 +13,9 @@ SERVO_ID = 1
 
 ser = serial.Serial(PORT, BAUD, timeout=1)
 
-MIN_POS = 0
+# Extend MIN below 0 until the gripper fully opens.
+# 4096 ticks = 360°, so -1000 ≈ 88° past the zero point.
+MIN_POS = -1000
 MAX_POS = 4095
 
 current_position = 2042
@@ -32,6 +34,7 @@ def write_position(position, time_ms=300):
     position = max(MIN_POS, min(MAX_POS, int(position)))
     current_position = position
 
+    # Python's bitwise ops handle negative values correctly (two's complement)
     pos_low  = position & 0xFF
     pos_high = (position >> 8) & 0xFF
     time_low  = time_ms & 0xFF
@@ -49,60 +52,62 @@ def write_position(position, time_ms=300):
 
 app = Flask(__name__)
 
-HTML = """
+HTML = f"""
 <!DOCTYPE html>
 <html>
 <head>
 <title>Pincher Servo</title>
 <style>
-  body { font-family: Arial; background: #111; color: #ddd; padding: 30px; max-width: 500px; }
-  h1   { color: #fff; }
-  .row { display: flex; align-items: center; gap: 14px; margin-top: 20px; }
-  input[type=range]  { flex: 1; accent-color: #39f; }
-  input[type=number] { width: 90px; padding: 6px 8px; background: #1e1e1e;
-                       border: 1px solid #333; border-radius: 4px; color: #fff;
-                       font-size: 13px; font-family: monospace; }
-  .lbl { width: 80px; color: #aaa; font-size: 13px; }
-  #send { margin-top: 20px; padding: 10px 28px; background: #1a3a5a;
-          border: 1px solid #39f; border-radius: 5px; color: #7cf;
-          font-size: 14px; cursor: pointer; }
-  #send:hover { background: #1e4a70; }
-  #status { margin-top: 14px; color: #888; font-size: 13px; }
+  body {{ font-family: Arial; background: #111; color: #ddd; padding: 30px; max-width: 500px; }}
+  h1   {{ color: #fff; }}
+  .sub {{ color: #555; font-size: 12px; margin-bottom: 20px; }}
+  .row {{ display: flex; align-items: center; gap: 14px; margin-top: 20px; }}
+  input[type=range]  {{ flex: 1; accent-color: #39f; }}
+  input[type=number] {{ width: 90px; padding: 6px 8px; background: #1e1e1e;
+                        border: 1px solid #333; border-radius: 4px; color: #fff;
+                        font-size: 13px; font-family: monospace; }}
+  .lbl {{ width: 80px; color: #aaa; font-size: 13px; }}
+  #send {{ margin-top: 20px; padding: 10px 28px; background: #1a3a5a;
+           border: 1px solid #39f; border-radius: 5px; color: #7cf;
+           font-size: 14px; cursor: pointer; }}
+  #send:hover {{ background: #1e4a70; }}
+  #status {{ margin-top: 14px; color: #888; font-size: 13px; }}
 </style>
 </head>
 <body>
 <h1>Pincher Servo</h1>
+<div class="sub">Range: {MIN_POS} – {MAX_POS} &nbsp;·&nbsp; 4096 ticks = 360°</div>
 
 <div class="row">
-  <span class="lbl">Angle (°)</span>
-  <input type="range" id="angle-s" min="0" max="360" step="1" value="180">
-  <input type="number" id="angle" value="180" min="0" max="360" step="1">
+  <span class="lbl">Position</span>
+  <input type="range" id="pos-s" min="{MIN_POS}" max="{MAX_POS}" step="1" value="2042">
+  <input type="number" id="pos" value="2042" min="{MIN_POS}" max="{MAX_POS}" step="1">
 </div>
 
 <button id="send" onclick="send()">Send</button>
 <div id="status">—</div>
 
 <script>
-const sld = document.getElementById("angle-s");
-const num = document.getElementById("angle");
+const sld = document.getElementById("pos-s");
+const num = document.getElementById("pos");
 let deb = null;
 
-sld.addEventListener("input", () => { num.value = sld.value; schedule(); });
-num.addEventListener("input", () => { sld.value = Math.min(360, Math.max(0, num.value)); schedule(); });
+sld.addEventListener("input", () => {{ num.value = sld.value; schedule(); }});
+num.addEventListener("input", () => {{ sld.value = Math.min({MAX_POS}, Math.max({MIN_POS}, +num.value || 0)); schedule(); }});
 
-function schedule() { clearTimeout(deb); deb = setTimeout(send, 80); }
+function schedule() {{ clearTimeout(deb); deb = setTimeout(send, 80); }}
 
-function send() {
-  const angle = parseFloat(num.value) || 0;
-  fetch("/pincher", {
+function send() {{
+  const pos = parseInt(num.value) || 0;
+  fetch("/pincher", {{
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ angle })
-  })
+    headers: {{ "Content-Type": "application/json" }},
+    body: JSON.stringify({{ position: pos }})
+  }})
   .then(r => r.json())
-  .then(d => { document.getElementById("status").textContent = "position: " + d.position; })
-  .catch(() => { document.getElementById("status").textContent = "error"; });
-}
+  .then(d => {{ document.getElementById("status").textContent = "sent: " + d.position; }})
+  .catch(() => {{ document.getElementById("status").textContent = "error"; }});
+}}
 </script>
 </body>
 </html>
@@ -111,25 +116,22 @@ function send() {
 
 @app.route("/")
 def home():
-    return render_template_string(HTML)
+    return HTML
 
 
 @app.route("/pincher", methods=["POST"])
 def pincher():
-    data  = request.json
-    angle = float(data.get("angle", 180))
-    angle = max(0.0, min(360.0, angle))
-    pos   = int((angle / 360.0) * MAX_POS)
+    data = request.json
+    pos  = int(data.get("position", current_position))
     write_position(pos)
     if slider_ref:
-        slider_ref.set(angle)
-    return jsonify({"angle": angle, "position": pos})
+        slider_ref.set(pos)
+    return jsonify({"position": current_position})
 
 
 @app.route("/state", methods=["GET"])
 def state():
-    return jsonify({"position": current_position,
-                    "angle": round(current_position / MAX_POS * 360, 2)})
+    return jsonify({"position": current_position})
 
 
 # =========================================================
@@ -140,9 +142,8 @@ slider_ref = None
 
 
 def slider_changed(val):
-    angle = int(float(val))
-    pos   = int((angle / 360.0) * MAX_POS)
-    print(f"Angle: {angle}°  Position: {pos}")
+    pos = int(float(val))
+    print(f"Position: {pos}")
     write_position(pos)
 
 
@@ -150,15 +151,15 @@ def start_gui():
     global slider_ref
 
     root = tk.Tk()
-    root.title("Feetech STS Servo — 360° Control")
+    root.title("Feetech STS Servo")
 
-    tk.Label(root, text="Full 360° Servo Control", font=("Arial", 14)).pack(pady=10)
+    tk.Label(root, text="Pincher Servo", font=("Arial", 14)).pack(pady=10)
 
     slider_ref = tk.Scale(
-        root, from_=0, to=360, orient="horizontal",
-        length=700, resolution=1, command=slider_changed, label="Angle"
+        root, from_=MIN_POS, to=MAX_POS, orient="horizontal",
+        length=700, resolution=1, command=slider_changed, label="Position"
     )
-    slider_ref.set(180)
+    slider_ref.set(2042)
     slider_ref.pack(padx=20, pady=20)
 
     root.mainloop()
