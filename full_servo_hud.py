@@ -121,8 +121,7 @@ def _metrics_poller():
         load  = pincher_read_load()
         with _cmd_lock:
             angles = {n: round(v, 1) for n, v in current_cmds.items()}
-        entry = {"t": time.time(), "temp": temp, "volts": volts,
-                 "load": load, "angles": angles}
+        entry = {"t": time.time(), "temp": temp, "volts": volts, "load": load, "angles": angles}
         with _m_lock:
             _metrics.append(entry)
             if len(_metrics) > 60:
@@ -198,41 +197,46 @@ HTML = """
     font-family: Arial, sans-serif;
     background: #111;
     color: #ddd;
-    padding: 30px;
-    max-width: 780px;
+    padding: 24px 30px;
+    max-width: 1100px;
   }
   h1 { color: #fff; margin-bottom: 4px; }
-  .subtitle { color: #555; font-size: 13px; margin-bottom: 28px; }
+  .subtitle { color: #555; font-size: 13px; margin-bottom: 20px; }
   h2 {
     color: #888;
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 1px;
-    margin: 28px 0 12px;
+    margin: 20px 0 10px;
     border-bottom: 1px solid #222;
-    padding-bottom: 6px;
+    padding-bottom: 5px;
   }
+
+  /* Two-column page layout */
+  .page-flex { display: flex; gap: 28px; align-items: flex-start; }
+  .col-main  { flex: 1; min-width: 0; }
+  .col-side  { width: 300px; flex-shrink: 0; }
 
   .form-row {
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
   }
   .form-label {
-    width: 72px;
-    font-size: 13px;
+    width: 68px;
+    font-size: 12px;
     color: #aaa;
     flex-shrink: 0;
   }
   input[type=number] {
-    width: 90px;
-    padding: 6px 8px;
+    width: 80px;
+    padding: 5px 7px;
     background: #1e1e1e;
     border: 1px solid #333;
     border-radius: 4px;
     color: #fff;
-    font-size: 13px;
+    font-size: 12px;
     font-family: monospace;
     flex-shrink: 0;
   }
@@ -243,11 +247,11 @@ HTML = """
     cursor: pointer;
     min-width: 0;
   }
-  .limits { font-size: 11px; color: #444; flex-shrink: 0; }
+  .limits { font-size: 10px; color: #444; flex-shrink: 0; width: 54px; text-align: right; }
 
   #send-btn {
-    margin-top: 20px;
-    padding: 10px 32px;
+    margin-top: 16px;
+    padding: 9px 28px;
     background: #1a3a5a;
     border: 1px solid #39f;
     border-radius: 5px;
@@ -255,15 +259,16 @@ HTML = """
     font-size: 14px;
     cursor: pointer;
     letter-spacing: 0.5px;
+    width: 100%;
   }
   #send-btn:hover { background: #1e4a70; }
   #send-btn:active { background: #0d2a45; }
 
   #status {
-    margin: 22px 0 6px;
-    padding: 12px 18px;
+    margin: 14px 0 4px;
+    padding: 10px 14px;
     border-radius: 6px;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: bold;
     text-align: center;
     transition: background 0.15s;
@@ -321,83 +326,82 @@ HTML = """
 <h1>Robot Arm — IK Controller</h1>
 <div class="subtitle">Inverse kinematics &nbsp;·&nbsp; port 8080</div>
 
-<h2>Target Position</h2>
-<div class="form-row">
-  <span class="form-label">X (mm)</span>
-  <input type="number" id="X" value="300" step="5">
-  <input type="range" id="X-s" min="-1000" max="1000" step="5" value="300">
-  <span class="limits">±1000</span>
-</div>
-<div class="form-row">
-  <span class="form-label">Y (mm)</span>
-  <input type="number" id="Y" value="0" step="5">
-  <input type="range" id="Y-s" min="-1000" max="1000" step="5" value="0">
-  <span class="limits">±1000</span>
-</div>
-<div class="form-row">
-  <span class="form-label">Z (mm)</span>
-  <input type="number" id="Z" value="300" step="5">
-  <input type="range" id="Z-s" min="0" max="1000" step="5" value="300">
-  <span class="limits">0 – 1000</span>
-</div>
+<div class="page-flex">
 
-<h2>Target Direction</h2>
-<div class="form-row">
-  <span class="form-label">Pitch (°)</span>
-  <input type="number" id="Pitch" value="-20" step="1">
-  <input type="range" id="Pitch-s" min="-90" max="90" step="1" value="-20">
-  <span class="limits">±90°</span>
-</div>
-<div class="form-row">
-  <span class="form-label">Yaw (°)</span>
-  <input type="number" id="Yaw" value="0" step="1">
-  <input type="range" id="Yaw-s" min="-180" max="180" step="1" value="0">
-  <span class="limits">±180°</span>
-</div>
+  <!-- ===================== Left: IK controls ===================== -->
+  <div class="col-main">
 
-<h2>Movement</h2>
-<div class="form-row">
-  <span class="form-label">Speed (%)</span>
-  <input type="number" id="Speed" value="50" min="1" max="100" step="1">
-  <input type="range" id="Speed-s" min="1" max="100" step="1" value="50">
-  <span class="limits">1 – 100%</span>
-</div>
+    <h2>Target Position</h2>
+    <div class="form-row">
+      <span class="form-label">X (mm)</span>
+      <input type="number" id="X" value="300" step="5">
+      <input type="range" id="X-s" min="-1000" max="1000" step="5" value="300">
+      <span class="limits">±1000</span>
+    </div>
+    <div class="form-row">
+      <span class="form-label">Y (mm)</span>
+      <input type="number" id="Y" value="0" step="5">
+      <input type="range" id="Y-s" min="-1000" max="1000" step="5" value="0">
+      <span class="limits">±1000</span>
+    </div>
+    <div class="form-row">
+      <span class="form-label">Z (mm)</span>
+      <input type="number" id="Z" value="300" step="5">
+      <input type="range" id="Z-s" min="0" max="1000" step="5" value="300">
+      <span class="limits">0–1000</span>
+    </div>
 
-<button id="send-btn" onclick="sendIK()">Send to Robot</button>
+    <h2>Target Direction</h2>
+    <div class="form-row">
+      <span class="form-label">Pitch (°)</span>
+      <input type="number" id="Pitch" value="-20" step="1">
+      <input type="range" id="Pitch-s" min="-90" max="90" step="1" value="-20">
+      <span class="limits">±90°</span>
+    </div>
+    <div class="form-row">
+      <span class="form-label">Yaw (°)</span>
+      <input type="number" id="Yaw" value="0" step="1">
+      <input type="range" id="Yaw-s" min="-180" max="180" step="1" value="0">
+      <span class="limits">±180°</span>
+    </div>
+    <div class="form-row">
+      <span class="form-label">Roll (°)</span>
+      <input type="number" id="Roll" value="0" step="1">
+      <input type="range" id="Roll-s" min="-180" max="180" step="1" value="0">
+      <span class="limits">±180°</span>
+    </div>
 
-<div id="status" class="idle">—</div>
+    <h2>Movement</h2>
+    <div class="form-row">
+      <span class="form-label">Speed (%)</span>
+      <input type="number" id="Speed" value="50" min="1" max="100" step="1">
+      <input type="range" id="Speed-s" min="1" max="100" step="1" value="50">
+      <span class="limits">1–100%</span>
+    </div>
 
-<h2>Servo Angles</h2>
-<table>
-  <thead>
-    <tr>
-      <th>Servo</th><th>Kinematic</th><th>Command</th><th>Limits</th><th></th>
-    </tr>
-  </thead>
-  <tbody id="servo-table">
-    <tr><td colspan="5" class="dim" style="text-align:center;padding:14px">
-      Move a slider or press Send
-    </td></tr>
-  </tbody>
-</table>
+    <button id="send-btn" onclick="sendIK()">Send to Robot</button>
+    <div id="status" class="idle">—</div>
+    <tbody id="servo-table" style="display:none"></tbody>
 
-<!-- ======================================================= -->
-<!-- Pincher                                                  -->
-<!-- ======================================================= -->
-<div id="pincher-section">
-  <h2>Pincher</h2>
-  <div class="form-row">
-    <span class="form-label">Position</span>
-    <input type="number" id="Pincher" value="1500" min="1000" max="2200" step="10">
-    <input type="range" id="Pincher-s" min="1000" max="2200" step="10" value="1500">
-    <span class="limits">1000 – 2200</span>
   </div>
-  <div id="pincher-btns">
-    <button class="p-btn" onclick="setPincher(1000)">Open</button>
-    <button class="p-btn" onclick="setPincher(2050)">Close</button>
-    <button class="p-btn" onclick="setPincher(2200)">Grip</button>
+
+  <!-- ===================== Right: Pincher ===================== -->
+  <div class="col-side">
+    <h2>Pincher</h2>
+    <div class="form-row">
+      <span class="form-label">Position</span>
+      <input type="number" id="Pincher" value="1500" min="1000" max="2200" step="10">
+      <input type="range" id="Pincher-s" min="1000" max="2200" step="10" value="1500">
+      <span class="limits">1000–2200</span>
+    </div>
+    <div id="pincher-btns">
+      <button class="p-btn" onclick="setPincher(1000)">Open</button>
+      <button class="p-btn" onclick="setPincher(2050)">Close</button>
+      <button class="p-btn" onclick="setPincher(2200)">Grip</button>
+    </div>
   </div>
-</div>
+
+</div><!-- end page-flex -->
 
 <!-- ======================================================= -->
 <!-- Graphs                                                   -->
@@ -426,7 +430,7 @@ HTML = """
 </div>
 
 <script>
-const FIELDS = ["X", "Y", "Z", "Pitch", "Yaw", "Speed"];
+const FIELDS = ["X", "Y", "Z", "Pitch", "Yaw", "Roll", "Speed"];
 let debounce = null;
 
 function val(id) { return parseFloat(document.getElementById(id).value) || 0; }
@@ -467,7 +471,7 @@ function sendIK() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       X: val("X"), Y: val("Y"), Z: val("Z"),
-      Pitch: val("Pitch"), Yaw: val("Yaw"),
+      Pitch: val("Pitch"), Yaw: val("Yaw"), Roll: val("Roll"),
       Speed: val("Speed")
     })
   })
@@ -596,13 +600,10 @@ function drawPower(h) {
     ctx.beginPath(); ctx.moveTo(0, H - v/100*H); ctx.lineTo(W, H - v/100*H); ctx.stroke();
   });
   if (h.length < 2) return;
-  // Voltage: scale 0–16V → 0–100%
   ctx.strokeStyle="#4af"; ctx.lineWidth=2;
   linePath(ctx, h, xOf, v => H - (v/16)*H, p => p.volts);
-  // Load: 0–100%
   ctx.strokeStyle="#fa4"; ctx.lineWidth=2;
   linePath(ctx, h, xOf, v => H - (v/100)*H, p => p.load);
-  // Axis labels
   ctx.fillStyle="#4af"; ctx.font="10px monospace"; ctx.fillText("V", 4, 12);
   ctx.fillStyle="#fa4"; ctx.fillText("%", 14, 12);
 }
@@ -613,7 +614,7 @@ function drawAngles(h) {
   const xOf = baseGraph(ctx, W, H, h); if (!xOf) return;
   [0,90,180,270].forEach(v => {
     ctx.strokeStyle="#1e1e1e"; ctx.lineWidth=1;
-    ctx.beginPath(); ctx.moveTo(0, H - (v/270)*H); ctx.lineTo(W, H - (v/270)*H); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, H-(v/270)*H); ctx.lineTo(W, H-(v/270)*H); ctx.stroke();
   });
   if (h.length < 2) return;
   Object.entries(SERVO_COLORS).forEach(([name, color]) => {
@@ -623,6 +624,27 @@ function drawAngles(h) {
   });
 }
 
+// Sync sliders from controller (polls /state every 200 ms)
+function syncFromController() {
+  fetch("/state").then(r => r.json()).then(d => {
+    const t = d.target;
+    if (!t) return;
+    // Only update sliders the controller actually changes
+    ["X","Y","Z","Pitch","Yaw","Roll"].forEach(id => {
+      if (t[id] == null) return;
+      const num = document.getElementById(id);
+      const sld = document.getElementById(id + "-s");
+      if (!num || !sld) return;
+      // Don't fight user input — only sync if delta > 2
+      if (Math.abs(parseFloat(num.value) - t[id]) > 2) {
+        num.value = t[id];
+        sld.value = Math.max(parseFloat(sld.min), Math.min(parseFloat(sld.max), t[id]));
+      }
+    });
+  }).catch(() => {});
+}
+
+setInterval(syncFromController, 200);
 setInterval(pollMetrics, 2000);
 pollMetrics();
 

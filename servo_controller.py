@@ -8,29 +8,36 @@ from evdev import InputDevice, ecodes, list_devices
 # Config
 # =========================================================
 
-SERVER    = "http://localhost:8080/ik"
-SPEED_PCT = 70
-DEADZONE  = 0.12
-LOOP_HZ   = 20
-DT        = 1.0 / LOOP_HZ
+SERVER         = "http://localhost:8080/ik"
+SERVER_PINCHER = "http://localhost:8080/pincher"
+SPEED_PCT      = 70
+DEADZONE       = 0.12
+LOOP_HZ        = 20
+DT             = 1.0 / LOOP_HZ
 
-R_RATE     = 200.0   # mm/s
-THETA_RATE = 1.2     # rad/s
-Z_RATE     = 150.0   # mm/s
-PITCH_RATE = 50.0    # deg/s
-ROLL_RATE  = 60.0    # deg/s
-YAW_RATE   = 60.0    # deg/s
+R_RATE       = 200.0   # mm/s
+THETA_RATE   = 0.4     # rad/s  — kept slow for fine base rotation
+Z_RATE       = 150.0   # mm/s
+PITCH_RATE   = 50.0    # deg/s
+ROLL_RATE    = 60.0    # deg/s
+YAW_RATE     = 60.0    # deg/s
+PINCHER_RATE = 150.0   # position units/s  (range 1000–2200)
+
+PINCHER_MIN = 1000.0
+PINCHER_MAX = 2200.0
 
 # Xbox One axis/button codes (Linux xpad driver)
 AX_LX  = ecodes.ABS_X    # Left stick X
 AX_LY  = ecodes.ABS_Y    # Left stick Y
 AX_RX  = ecodes.ABS_RX   # Right stick X
 AX_RY  = ecodes.ABS_RY   # Right stick Y
+AX_LT  = ecodes.ABS_Z    # Left trigger  (0 = released → open)
+AX_RT  = ecodes.ABS_RZ   # Right trigger (0 = released → close)
 
-BTN_A  = ecodes.BTN_SOUTH  # A
-BTN_Y  = ecodes.BTN_NORTH  # Y
-BTN_LB = ecodes.BTN_TL     # Left bumper
-BTN_RB = ecodes.BTN_TR     # Right bumper
+BTN_A  = ecodes.BTN_SOUTH  # A  — Z down
+BTN_Y  = ecodes.BTN_NORTH  # Y  — Z up
+BTN_LB = ecodes.BTN_TL     # LB — yaw left
+BTN_RB = ecodes.BTN_TR     # RB — yaw right
 
 
 # =========================================================
@@ -63,7 +70,7 @@ def _reader(dev):
             if event.type == ecodes.EV_ABS:
                 _axes[event.code] = event.value
             elif event.type == ecodes.EV_KEY:
-                _btns[event.code] = event.value  # 1 = pressed, 0 = released
+                _btns[event.code] = event.value
 
 
 def axis(code, absinfo):
@@ -91,7 +98,7 @@ def dead(v):
 
 
 # =========================================================
-# IK request
+# Requests
 # =========================================================
 
 def post_ik(x, y, z, pitch, yaw, roll):
@@ -104,6 +111,13 @@ def post_ik(x, y, z, pitch, yaw, roll):
         return resp.json()
     except Exception:
         return None
+
+
+def post_pincher(pos):
+    try:
+        requests.post(SERVER_PINCHER, json={"position": int(pos)}, timeout=0.1)
+    except Exception:
+        pass
 
 
 # =========================================================
@@ -125,14 +139,15 @@ def main():
     print(f"Connected: {dev.name}  ({dev.path})")
     print()
     print("  Left stick up / down       →  arm further / closer")
-    print("  Left stick left / right    →  rotate around base")
+    print("  Left stick left / right    →  rotate around base (slow)")
     print("  A / Y                      →  Z down / Z up")
     print("  Right stick up / down      →  pitch")
     print("  Right stick left / right   →  hand roll")
     print("  LB / RB                    →  yaw")
+    print("  Left trigger               →  pincher open")
+    print("  Right trigger              →  pincher close / grip")
     print()
 
-    # Grab absinfo for normalisation and seed initial axis state
     absinfo = {}
     caps = dev.capabilities()
     with _lock:
@@ -140,17 +155,17 @@ def main():
             absinfo[code] = info
             _axes[code] = info.value
 
-    # Background event reader
     t = threading.Thread(target=_reader, args=(dev,), daemon=True)
     t.start()
 
     # Control state
-    r          = 300.0
-    theta      = 0.0    # arm base rotation (radians)
-    z          = 350.0
-    pitch      = -20.0
-    yaw_offset =   0.0  # yaw relative to arm direction
-    roll       =   0.0
+    r           = 300.0
+    theta       = 0.0
+    z           = 350.0
+    pitch       = -20.0
+    yaw_offset  =   0.0
+    roll        =   0.0
+    pincher_pos = 1500.0
 
     while True:
         t0 = time.time()
@@ -159,8 +174,9 @@ def main():
         ly = dead(axis(AX_LY, absinfo))
         rx = dead(axis(AX_RX, absinfo))
         ry = dead(axis(AX_RY, absinfo))
+        lt = axis(AX_LT, absinfo)   # 0–1, no deadzone needed for triggers
+        rt = axis(AX_RT, absinfo)
 
-        # Snapshot before applying deltas — restored if out of reach
         saved = (r, theta, z, pitch, yaw_offset, roll)
 
         r          += -ly * R_RATE     * DT
@@ -175,6 +191,11 @@ def main():
         pitch      = max(-90.0,  min(90.0,   pitch))
         roll       = max(-180.0, min(180.0,  roll))
         yaw_offset = max(-90.0,  min(90.0,   yaw_offset))
+
+        # Pincher — triggers run independently, not reverted on out-of-reach
+        pincher_pos += (-lt + rt) * PINCHER_RATE * DT
+        pincher_pos  = max(PINCHER_MIN, min(PINCHER_MAX, pincher_pos))
+        post_pincher(pincher_pos)
 
         x   = r * math.cos(theta)
         y   = r * math.sin(theta)
@@ -195,7 +216,8 @@ def main():
         print(
             f"\r  r={r:5.0f}  θ={math.degrees(theta):6.1f}°  z={z:5.0f}"
             f"  p={pitch:5.1f}°  yaw={yaw:6.1f}°  roll={roll:5.1f}°"
-            f"  | {status:<35}",
+            f"  pincher={pincher_pos:5.0f}"
+            f"  | {status:<30}",
             end=""
         )
 
