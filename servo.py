@@ -46,13 +46,14 @@ REGISTERS = {
 # Servo Class
 # ==========================================================
 class Servo:
-    def __init__(self, servo_id, servo_type, limits, default_pos):
+    def __init__(self, servo_id, servo_type, limits, default_pos, conversion_angle):
         self.id = servo_id
         self.type = servo_type
-        self.position = default_pos
         self.limits = limits
         self.default_pos = default_pos
-        self._ser = None  # resolved lazily on first use
+        self.conversion_angle = conversion_angle
+        self.position = conversion_angle
+        self._ser = None
 
     @property
     def ser(self):
@@ -72,7 +73,7 @@ class Servo:
         if self.type == "smart":
             return smart_write_position(self, position)
         else:
-            self.position = position
+            self.position = self.conversion_angle + (position - self.default_pos)
             return hobby_write_position(self, position)
 
     def read_data(self, register_address=None):
@@ -155,9 +156,7 @@ def smart_read(self, register, size):
 # ====================================================================
 def hobby_write_position(self, position):
 
-    angle = int(position)
-
-    command = f"{self.id}:{angle}\n"
+    command = f"{self.id}:{position:.2f}\n"
 
     self.ser.write(command.encode())
 
