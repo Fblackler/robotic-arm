@@ -15,10 +15,10 @@ ser = serial.Serial(PORT, BAUD, timeout=1)
 
 # Extend MIN below 0 until the gripper fully opens.
 # 4096 ticks = 360°, so -1000 ≈ 88° past the zero point.
-MIN_POS = -1000
-MAX_POS = 4095
+MIN_POS = 1000
+MAX_POS = 2200
 
-current_position = 2042
+current_position = 1500
 
 
 # =========================================================

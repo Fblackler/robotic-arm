@@ -17,6 +17,24 @@ HOBBY_BAUD = 115200
 ser = serial.Serial(HOBBY_PORT, HOBBY_BAUD, timeout=1)
 time.sleep(2)
 
+# Smart servo (Pincher — Feetech STS)
+SMART_PORT = "/dev/ttyACM0"
+SMART_BAUD = 1000000
+SMART_ID   = 1
+
+PINCHER_MIN = 1000   # fully open
+PINCHER_MAX = 2200   # closed + grip force
+PINCHER_DEF = 1500
+
+TEMP_WARN = 55   # °C — yellow warning
+TEMP_CRIT = 65   # °C — red critical (stop using it!)
+
+try:
+    smart_ser = serial.Serial(SMART_PORT, SMART_BAUD, timeout=0.3)
+except Exception as e:
+    print(f"[WARN] Smart servo not connected: {e}")
+    smart_ser = None
+
 
 # =========================================================
 # Config
@@ -39,6 +57,59 @@ def kin_to_cmd(sdef, name, kin_deg):
 
 def send_servo(servo_id, angle_cmd):
     ser.write(f"{servo_id}:{angle_cmd:.2f}\n".encode())
+
+
+# =========================================================
+# Pincher (smart servo)
+# =========================================================
+
+def _smart_checksum(data):
+    return (~sum(data)) & 0xFF
+
+def pincher_write(position, time_ms=300):
+    if not smart_ser:
+        return
+    position = max(PINCHER_MIN, min(PINCHER_MAX, int(position)))
+    pl, ph = position & 0xFF, (position >> 8) & 0xFF
+    tl, th = time_ms & 0xFF, (time_ms >> 8) & 0xFF
+    pkt = [0xFF, 0xFF, SMART_ID, 7, 3, 0x2A, pl, ph, tl, th]
+    pkt.append(_smart_checksum(pkt[2:]))
+    smart_ser.write(bytes(pkt))
+
+def pincher_read_temp():
+    if not smart_ser:
+        return None
+    try:
+        pkt = [0xFF, 0xFF, SMART_ID, 4, 0x02, 0x3F, 1]
+        pkt.append(_smart_checksum(pkt[2:]))
+        smart_ser.reset_input_buffer()
+        smart_ser.write(bytes(pkt))
+        resp = smart_ser.read(7)
+        return resp[5] if len(resp) == 7 else None
+    except Exception:
+        return None
+
+
+# =========================================================
+# Temperature history (background polling every 2 s)
+# =========================================================
+
+_temp_history = []   # list of {"t": epoch_s, "c": celsius}
+_temp_lock    = threading.Lock()
+_pincher_pos  = PINCHER_DEF
+
+def _temp_poller():
+    while True:
+        temp = pincher_read_temp()
+        if temp is not None:
+            with _temp_lock:
+                _temp_history.append({"t": time.time(), "c": int(temp)})
+                if len(_temp_history) > 60:
+                    _temp_history.pop(0)
+        time.sleep(2)
+
+_tp = threading.Thread(target=_temp_poller, daemon=True)
+_tp.start()
 
 
 # =========================================================
@@ -193,6 +264,26 @@ HTML = """
   .ok  { color: #3d3; }
   .bad { color: #d33; font-weight: bold; }
   .dim { color: #444; }
+
+  /* Pincher */
+  #pincher-section { margin-top: 32px; }
+  #pincher-btns { display: flex; gap: 10px; margin-top: 10px; }
+  .p-btn { flex: 1; padding: 10px; border-radius: 5px; border: 1px solid #444;
+           background: #1e1e1e; color: #ddd; font-size: 13px; cursor: pointer; }
+  .p-btn:hover { background: #2a2a2a; }
+
+  /* Temperature */
+  #temp-section { margin-top: 32px; }
+  #temp-value { font-size: 42px; font-weight: bold; font-family: monospace;
+                text-align: center; padding: 10px 0; }
+  .temp-ok   { color: #3d3; }
+  .temp-warn { color: #fa4; }
+  .temp-crit { color: #f33; }
+  #temp-alert { display: none; background: #4a0000; color: #f66; border: 1px solid #f33;
+                border-radius: 6px; padding: 12px; text-align: center;
+                font-weight: bold; margin-bottom: 10px; }
+  #temp-canvas { width: 100%; height: 120px; background: #1a1a1a;
+                 border: 1px solid #2a2a2a; border-radius: 4px; display: block; }
 </style>
 </head>
 <body>
@@ -260,6 +351,40 @@ HTML = """
   </tbody>
 </table>
 
+<!-- ======================================================= -->
+<!-- Pincher                                                  -->
+<!-- ======================================================= -->
+<div id="pincher-section">
+  <h2>Pincher</h2>
+  <div class="form-row">
+    <span class="form-label">Position</span>
+    <input type="number" id="Pincher" value="1500" min="1000" max="2200" step="10">
+    <input type="range" id="Pincher-s" min="1000" max="2200" step="10" value="1500">
+    <span class="limits">1000 – 2200</span>
+  </div>
+  <div id="pincher-btns">
+    <button class="p-btn" onclick="setPincher(1000)">Open</button>
+    <button class="p-btn" onclick="setPincher(2050)">Close</button>
+    <button class="p-btn" onclick="setPincher(2200)">Grip</button>
+  </div>
+</div>
+
+<!-- ======================================================= -->
+<!-- Temperature                                              -->
+<!-- ======================================================= -->
+<div id="temp-section">
+  <h2>Pincher Temperature</h2>
+  <div id="temp-alert">⚠ TEMPERATURE CRITICAL — let the servo cool down!</div>
+  <div id="temp-value" class="temp-ok">— °C</div>
+  <canvas id="temp-canvas" width="720" height="120"></canvas>
+  <div style="display:flex;justify-content:space-between;font-size:10px;color:#444;margin-top:4px;">
+    <span>2 min ago</span>
+    <span style="color:#fa4">warn 55°C</span>
+    <span style="color:#f33">crit 65°C</span>
+    <span>now</span>
+  </div>
+</div>
+
 <script>
 const FIELDS = ["X", "Y", "Z", "Pitch", "Yaw", "Speed"];
 let debounce = null;
@@ -316,6 +441,90 @@ function sendIK() {
 }
 
 document.addEventListener("keydown", e => { if (e.key === "Enter") sendIK(); });
+
+// ---- Pincher ----
+const pNum = document.getElementById("Pincher");
+const pSld = document.getElementById("Pincher-s");
+pNum.addEventListener("input", () => { pSld.value = pNum.value; sendPincher(); });
+pSld.addEventListener("input", () => { pNum.value = pSld.value; sendPincher(); });
+
+function setPincher(pos) { pNum.value = pos; pSld.value = pos; sendPincher(); }
+
+function sendPincher() {
+  fetch("/pincher", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ position: parseInt(pNum.value) })
+  });
+}
+
+// ---- Temperature graph ----
+const TEMP_WARN = 55, TEMP_CRIT = 65;
+let tempHistory = [];
+
+function pollTemp() {
+  fetch("/temperature")
+    .then(r => r.json())
+    .then(d => {
+      tempHistory = d.history || [];
+      const cur = d.current;
+      const el  = document.getElementById("temp-value");
+      const alrt = document.getElementById("temp-alert");
+      if (cur === null) {
+        el.textContent = "— °C";
+        el.className = "temp-ok";
+      } else {
+        el.textContent = cur + " °C";
+        el.className = cur >= TEMP_CRIT ? "temp-crit" : cur >= TEMP_WARN ? "temp-warn" : "temp-ok";
+        alrt.style.display = cur >= TEMP_CRIT ? "block" : "none";
+      }
+      drawGraph(tempHistory);
+    })
+    .catch(() => {});
+}
+
+function drawGraph(history) {
+  const canvas = document.getElementById("temp-canvas");
+  const ctx    = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  // Temperature range 20–80°C displayed
+  const T_MIN = 20, T_MAX = 80;
+  const yOf = t => H - ((t - T_MIN) / (T_MAX - T_MIN)) * H;
+
+  // Warn / crit bands
+  ctx.fillStyle = "rgba(250,160,0,0.08)";
+  ctx.fillRect(0, yOf(TEMP_CRIT), W, yOf(TEMP_WARN) - yOf(TEMP_CRIT));
+  ctx.fillStyle = "rgba(220,0,0,0.12)";
+  ctx.fillRect(0, 0, W, yOf(TEMP_CRIT));
+
+  // Gridlines
+  [30, 40, 50, 55, 65, 70].forEach(t => {
+    ctx.strokeStyle = t === TEMP_WARN ? "#fa4" : t === TEMP_CRIT ? "#f33" : "#2a2a2a";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, yOf(t)); ctx.lineTo(W, yOf(t)); ctx.stroke();
+  });
+
+  if (history.length < 2) return;
+
+  const now    = history[history.length - 1].t;
+  const tStart = now - 120;  // 2 minutes window
+  const xOf = t => ((t - tStart) / 120) * W;
+
+  ctx.beginPath();
+  ctx.lineWidth = 2;
+  history.forEach((p, i) => {
+    const x = xOf(p.t), y = yOf(p.c);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  const last = history[history.length - 1].c;
+  ctx.strokeStyle = last >= TEMP_CRIT ? "#f33" : last >= TEMP_WARN ? "#fa4" : "#3d3";
+  ctx.stroke();
+}
+
+setInterval(pollTemp, 2000);
+pollTemp();
 
 function updateDisplay(data) {
   const statusEl = document.getElementById("status");
@@ -411,6 +620,26 @@ def ik_route():
 @app.route("/state", methods=["GET"])
 def state():
     return jsonify(app.config.get("last_state", {}))
+
+
+@app.route("/pincher", methods=["POST"])
+def pincher_route():
+    try:
+        pos = int(request.json.get("position", PINCHER_DEF))
+        pincher_write(pos)
+        global _pincher_pos
+        _pincher_pos = pos
+        return jsonify({"position": pos})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 200
+
+
+@app.route("/temperature", methods=["GET"])
+def temperature_route():
+    with _temp_lock:
+        history = list(_temp_history)
+    current = history[-1]["c"] if history else None
+    return jsonify({"current": current, "warn": TEMP_WARN, "crit": TEMP_CRIT, "history": history})
 
 
 if __name__ == "__main__":
