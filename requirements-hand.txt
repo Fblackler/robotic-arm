@@ -1,0 +1,6 @@
+# Hand tracking (hand_tracker.py). Install with:
+#   pip install -r requirements-hand.txt
+# mediapipe also installs OpenCV. Needs Python 3.9-3.12.
+mediapipe>=0.10.14
+requests
+numpy
