@@ -32,9 +32,26 @@ from hand_features import OneEuroFilter
 #   "absolute": the arm copies where your hand is in the picture.
 #               Hand in the middle = arm in the middle of its box below.
 #   "relative": mouse-style, hand movement nudges the arm from where it is.
+#   "follow":   camera mounted ON the arm. The arm moves to keep your hand in
+#               the centre of the picture, at the distance it was when it
+#               first saw you.
 # =========================================================
 
-MODE = "absolute"
+MODE = "follow"
+
+# ---- Follow mode (camera on the arm) ----
+# Error = how far the hand is from the centre (x, y go from -0.5 to +0.5).
+# The arm moves at a speed proportional to the error, capped by the *_RATE
+# values further down. Flip a FOLLOW_SIGN_ if the arm moves AWAY from your hand.
+FOLLOW_K_THETA = 0.6      # rad/s of base turn per unit of left/right error
+FOLLOW_K_Z     = 200.0    # mm/s of height per unit of up/down error
+FOLLOW_K_R     = 150.0    # mm/s of reach per unit of distance error (size too small/big)
+FOLLOW_DEADBAND_XY   = 0.06   # ignore the hand being this close to centre (stops wobbling)
+FOLLOW_DEADBAND_SIZE = 0.15   # ignore size changes smaller than 15%
+FOLLOW_SIGN_THETA = -1    # hand right of centre -> turn base right
+FOLLOW_SIGN_Z     = +1    # hand above centre -> move up
+FOLLOW_SIGN_R     = +1    # hand looks smaller (further) -> reach towards it
+FOLLOW_DISTANCE   = True  # set False to only follow left/right/up/down
 
 # ---- Absolute mode: map the picture onto a box the arm can reach ----
 # Hand across the picture (0 = left edge, 1 = right edge, mirrored like a selfie)
@@ -131,6 +148,13 @@ def _map(v, v0, v1, out0, out1):
     return out0 + t * (out1 - out0)
 
 
+def _deadband(e, band):
+    """Zero inside the band, then grows from zero (no jump at the edge)."""
+    if abs(e) <= band:
+        return 0.0
+    return e - band if e > 0 else e + band
+
+
 def _step(current, target, max_step):
     return current + _clamp(target - current, -max_step, max_step)
 
@@ -223,6 +247,29 @@ class HandArmController:
 
         x0, y0, s0, r0 = self._anchor_hand
         a = self._anchor_pose
+
+        if MODE == "follow":
+            ex = _deadband(sx - 0.5, FOLLOW_DEADBAND_XY)          # + = hand right of centre
+            ey = _deadband(sy - 0.5, FOLLOW_DEADBAND_XY)          # + = hand below centre
+            es = _deadband((s0 - ss) / s0, FOLLOW_DEADBAND_SIZE)  # + = hand looks smaller (further away)
+
+            v_theta = _clamp(FOLLOW_SIGN_THETA * FOLLOW_K_THETA * ex, -THETA_RATE, THETA_RATE)
+            v_z     = _clamp(FOLLOW_SIGN_Z * FOLLOW_K_Z * -ey,        -Z_RATE, Z_RATE)
+            v_r     = _clamp(FOLLOW_SIGN_R * FOLLOW_K_R * es,         -R_RATE, R_RATE)
+            if not FOLLOW_DISTANCE:
+                v_r = 0.0
+
+            c = self._cmd
+            out = copy.copy(c)
+            out.theta = c.theta + v_theta * dt
+            out.z     = _clamp(c.z + v_z * dt, Z_MIN, Z_MAX)
+            out.r     = _clamp(c.r + v_r * dt, R_MIN, R_MAX)
+            self._cmd = out
+
+            self.state = "tracking"
+            self.debug = (f"off-centre x={sx - 0.5:+.2f} y={sy - 0.5:+.2f} size={ss:.3f} (keep {s0:.3f})  "
+                          f"-> base {math.degrees(v_theta):+.0f}deg/s z {v_z:+.0f} r {v_r:+.0f} mm/s")
+            return out, pinch_to_pincher(sp)
 
         # Where the hand says the arm should be
         want = copy.copy(a)

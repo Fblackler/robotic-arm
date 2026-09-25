@@ -55,7 +55,9 @@ SEND_HZ       = 20                        # how often to send arm targets
 PREVIEW_PORT  = 8090
 PREVIEW_FPS   = 15
 
-CAM_WIDTH, CAM_HEIGHT, CAM_FPS = 640, 480, 30   # plenty for hand tracking, keeps CPU low
+CAM_WIDTH, CAM_HEIGHT, CAM_FPS = 640, 480, 30
+MIRROR = False       # True = flip the picture like a selfie (for a camera facing you on the desk).
+                     # False for a camera mounted on the arm.   # plenty for hand tracking, keeps CPU low
 
 MODEL_PATH = Path(__file__).resolve().parent / "cache" / "hand_landmarker.task"
 MODEL_URL  = ("https://storage.googleapis.com/mediapipe-models/hand_landmarker/"
@@ -353,6 +355,13 @@ def draw_overlay(img, landmarks, feat, state, arm_status, paused, fps, debug="")
             closed = feat.pinch < 0.45
             cv2.line(img, pts[4], pts[8], (0, 0, 255) if closed else (0, 255, 0), 2)
 
+    # Centre target (follow mode keeps your hand inside this box)
+    cx, cy = w // 2, h // 2
+    bw, bh = int(0.06 * w), int(0.06 * h)
+    cv2.rectangle(img, (cx - bw, cy - bh), (cx + bw, cy + bh), (255, 200, 0), 1)
+    cv2.line(img, (cx - 10, cy), (cx + 10, cy), (255, 200, 0), 1)
+    cv2.line(img, (cx, cy - 10), (cx, cy + 10), (255, 200, 0), 1)
+
     if paused:
         label, col = "PAUSED", (60, 60, 255)
     elif state == "tracking":
@@ -424,7 +433,8 @@ def main():
                 continue
             last_id = fid
 
-            frame = cv2.flip(frame, 1)                 # mirror, like a selfie
+            if MIRROR:
+                frame = cv2.flip(frame, 1)             # mirror, like a selfie
             h, w = frame.shape[:2]
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             ts = int((time.monotonic() - t0) * 1000)
