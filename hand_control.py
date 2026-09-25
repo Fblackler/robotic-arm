@@ -28,7 +28,29 @@ from dataclasses import dataclass
 from hand_features import OneEuroFilter
 
 # =========================================================
-# Tuning. Flip a SIGN_ value if an axis moves the wrong way.
+# MODE
+#   "absolute": the arm copies where your hand is in the picture.
+#               Hand in the middle = arm in the middle of its box below.
+#   "relative": mouse-style, hand movement nudges the arm from where it is.
+# =========================================================
+
+MODE = "absolute"
+
+# ---- Absolute mode: map the picture onto a box the arm can reach ----
+# Hand across the picture (0 = left edge, 1 = right edge, mirrored like a selfie)
+X_LEFT, X_RIGHT   = 0.20, 0.80
+THETA_SPAN_DEG    = 50.0     # base turns +/- this many degrees edge to edge
+# Hand up/down in the picture (0 = top, 1 = bottom)
+Y_TOP, Y_BOTTOM   = 0.20, 0.80
+Z_AT_TOP          = 500.0    # arm height (mm) when your hand is at the top
+Z_AT_BOTTOM       = 150.0    # ... at the bottom.   Swap these two if up/down is backwards
+# Hand distance, measured by how big your palm looks ("size" on the preview)
+SIZE_FAR, SIZE_NEAR = 0.09, 0.20   # palm size far from / close to the camera
+R_AT_FAR          = 200.0    # arm reach (mm) when your hand is far from the camera
+R_AT_NEAR         = 500.0    # ... close to the camera. Swap these two if forward/back is backwards
+
+# =========================================================
+# Relative mode tuning. Flip a SIGN_ value if an axis moves the wrong way.
 # =========================================================
 
 THETA_GAIN = 0.8      # radians of base rotation for moving across the whole image (was 1.6)
@@ -36,8 +58,8 @@ Z_GAIN     = 200.0    # mm of height for moving from the top to the bottom of th
 R_GAIN     = 150.0    # mm of reach for the palm looking 2x bigger (was 350)
 ROLL_GAIN  = 1.0      # degrees of arm roll per degree of hand tilt
 
-SIGN_THETA = -1       # hand to your right -> which way the base turns
-SIGN_Z     = +1       # hand up -> arm up
+SIGN_THETA = -1       # hand to your right -> which way the base turns (both modes)
+SIGN_Z     = -1       # hand up -> arm up (was +1, arm went the wrong way)
 SIGN_R     = +1       # hand towards camera -> arm reaches further
 SIGN_ROLL  = -1
 
@@ -52,9 +74,9 @@ Z_MIN, Z_MAX         = 0.0, 900.0
 PITCH_MIN, PITCH_MAX = -90.0, 90.0
 ROLL_MIN, ROLL_MAX   = -180.0, 180.0
 
-R_RATE     = 40.0     # mm/s       SLOW START - raise once you trust it (was 250)
-THETA_RATE = 0.15     # rad/s (~9 deg/s)  SLOW START (was 0.8)
-Z_RATE     = 30.0     # mm/s       SLOW START (was 200)
+R_RATE     = 80.0     # mm/s       still slow - raise once you trust it (original 250)
+THETA_RATE = 0.35     # rad/s (~20 deg/s)  (original 0.8)
+Z_RATE     = 80.0     # mm/s       (original 200)
 ROLL_RATE  = 15.0     # deg/s      SLOW START (was 90)
 
 # Pincher: pinch ratio -> servo position
@@ -103,6 +125,12 @@ def _clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
 
+def _map(v, v0, v1, out0, out1):
+    """Linear map v from [v0, v1] to [out0, out1], clamped at the ends."""
+    t = _clamp((v - v0) / (v1 - v0), 0.0, 1.0)
+    return out0 + t * (out1 - out0)
+
+
 def _step(current, target, max_step):
     return current + _clamp(target - current, -max_step, max_step)
 
@@ -121,6 +149,7 @@ class HandArmController:
         # Last pose we asked for (may not be confirmed yet). Used for speed limiting.
         self._cmd = copy.copy(self.pose)
         self.state = "no hand"
+        self.debug = ""
         self._anchor_hand = None
         self._anchor_pose = None
         self._seen_since = None
@@ -197,9 +226,15 @@ class HandArmController:
 
         # Where the hand says the arm should be
         want = copy.copy(a)
-        want.theta = a.theta + SIGN_THETA * (sx - x0) * THETA_GAIN
-        want.z     = a.z     + SIGN_Z * (y0 - sy) * Z_GAIN
-        want.r     = a.r     + SIGN_R * (ss / s0 - 1.0) * R_GAIN
+        if MODE == "absolute":
+            want.theta = math.radians(SIGN_THETA * _map(sx, X_LEFT, X_RIGHT,
+                                                        -THETA_SPAN_DEG, THETA_SPAN_DEG))
+            want.z = _map(sy, Y_TOP, Y_BOTTOM, Z_AT_TOP, Z_AT_BOTTOM)
+            want.r = _map(ss, SIZE_FAR, SIZE_NEAR, R_AT_FAR, R_AT_NEAR)
+        else:
+            want.theta = a.theta + SIGN_THETA * (sx - x0) * THETA_GAIN
+            want.z     = a.z     + SIGN_Z * (y0 - sy) * Z_GAIN
+            want.r     = a.r     + SIGN_R * (ss / s0 - 1.0) * R_GAIN
         if ENABLE_ROLL:
             want.roll = a.roll + SIGN_ROLL * (sr - r0) * ROLL_GAIN
 
@@ -218,4 +253,6 @@ class HandArmController:
         self._cmd = out
 
         self.state = "tracking"
+        self.debug = (f"hand x={sx:.2f} y={sy:.2f} size={ss:.3f}  ->  "
+                      f"target r={want.r:.0f} base={math.degrees(want.theta):.0f}deg z={want.z:.0f}")
         return out, pinch_to_pincher(sp)

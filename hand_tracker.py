@@ -50,7 +50,7 @@ from hand_control import ArmPose, HandArmController
 # =========================================================
 
 SERVER        = "http://localhost:8080"   # full_servo_hud.py
-SPEED_PCT     = 20                        # servo speed on the server, 1-100 (was 70)
+SPEED_PCT     = 30                        # servo speed on the server, 1-100 (was 70)
 SEND_HZ       = 20                        # how often to send arm targets
 PREVIEW_PORT  = 8090
 PREVIEW_FPS   = 15
@@ -338,7 +338,7 @@ def make_preview_handler(shared):
 # Drawing
 # =========================================================
 
-def draw_overlay(img, landmarks, feat, state, arm_status, paused, fps):
+def draw_overlay(img, landmarks, feat, state, arm_status, paused, fps, debug=""):
     h, w = img.shape[:2]
     if landmarks:
         pts = [(int(l.x * w), int(l.y * h)) for l in landmarks]
@@ -361,9 +361,12 @@ def draw_overlay(img, landmarks, feat, state, arm_status, paused, fps):
         label, col = state.upper(), (200, 200, 200)
     cv2.rectangle(img, (0, 0), (w, 34), (0, 0, 0), -1)
     cv2.putText(img, label, (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.7, col, 2)
-    cv2.rectangle(img, (0, h - 28), (w, h), (0, 0, 0), -1)
-    cv2.putText(img, f"arm: {arm_status}", (10, h - 9),
+    cv2.rectangle(img, (0, h - 48), (w, h), (0, 0, 0), -1)
+    cv2.putText(img, f"arm: {arm_status}", (10, h - 29),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+    if debug:
+        cv2.putText(img, debug, (10, h - 9),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.42, (120, 220, 255), 1)
     cv2.putText(img, f"{fps:4.1f} fps", (w - 90, 24),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
 
@@ -379,7 +382,7 @@ def parse_camera(s):
 def main():
     ap = argparse.ArgumentParser(description="Control the robot arm with your hand.")
     ap.add_argument("--camera", default="0", help="camera index or path, e.g. 0 or /dev/video0")
-    ap.add_argument("--server", default=SERVER, help="full_servo_hud.py address")
+    ap.add_argument("--server", default="http://127.0.0.1:8080", help="full_servo_hud.py address")
     ap.add_argument("--dry-run", action="store_true", help="track only, don't move the arm")
     ap.add_argument("--show", action="store_true", help="open a local preview window")
     ap.add_argument("--port", type=int, default=PREVIEW_PORT, help="browser preview port (0 = off)")
@@ -466,7 +469,8 @@ def main():
 
             want_preview = args.port and now - last_preview >= 1.0 / PREVIEW_FPS
             if want_preview or args.show:
-                draw_overlay(frame, landmarks, feat, ctrl.state, arm.status, paused, fps)
+                draw_overlay(frame, landmarks, feat, ctrl.state, arm.status, paused, fps,
+                             ctrl.debug if feat is not None else "")
             if want_preview:
                 last_preview = now
                 ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
