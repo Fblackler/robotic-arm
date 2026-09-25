@@ -37,7 +37,19 @@ from hand_features import OneEuroFilter
 #               first saw you.
 # =========================================================
 
-MODE = "follow"
+MODE = "simple"
+
+# ---- Simple mode (camera on the arm) ----
+# Work out which direction the hand is from the centre of the picture.
+# Outside the dead zone, move the arm that way at one fixed slow speed:
+#   hand left in the picture  -> arm moves right (the camera image is flipped)
+#   hand up in the picture    -> arm moves up (whole arm, Z)
+# Inside the dead zone the arm stops.
+SIMPLE_SPEED       = 30.0   # mm/s, fixed
+SIMPLE_DEADZONE    = 0.10   # radius of the dead zone, as a fraction of picture height
+SIMPLE_HYSTERESIS  = 0.03   # start moving at DEADZONE+this, stop at DEADZONE-this (stops flicker)
+SIMPLE_SIGN_H      = +1     # flip if left/right goes the wrong way
+SIMPLE_SIGN_V      = +1     # flip if up/down goes the wrong way
 
 # ---- Follow mode (camera on the arm) ----
 # Error = how far the hand is from the centre (x, y go from -0.5 to +0.5).
@@ -52,6 +64,17 @@ FOLLOW_SIGN_THETA = -1    # hand right of centre -> turn base right
 FOLLOW_SIGN_Z     = -1    # hand above centre -> move up (flipped: +1 went the wrong way)
 FOLLOW_SIGN_R     = +1    # hand looks smaller (further) -> reach towards it
 FOLLOW_DISTANCE   = True  # set False to only follow left/right/up/down
+
+# How to follow up/down:
+#   "pitch": tilt the gripper (and the camera on it) up/down. Best for a camera
+#            on the gripper, because raising the whole arm also tilts the
+#            camera and can make the hand run away in the picture.
+#   "z":     raise/lower the whole arm.
+FOLLOW_VERTICAL      = "pitch"
+FOLLOW_K_PITCH       = 40.0   # deg/s of tilt per unit of up/down error
+FOLLOW_SIGN_PITCH    = +1     # hand above centre -> tilt up. Flip if it tilts away.
+PITCH_RATE           = 15.0   # deg/s max tilt speed
+FOLLOW_PITCH_MIN, FOLLOW_PITCH_MAX = -70.0, 40.0
 
 # ---- Absolute mode: map the picture onto a box the arm can reach ----
 # Hand across the picture (0 = left edge, 1 = right edge, mirrored like a selfie)
@@ -174,6 +197,8 @@ class HandArmController:
         self._cmd = copy.copy(self.pose)
         self.state = "no hand"
         self.debug = ""
+        self.aspect = 640 / 480      # picture width / height (set by hand_tracker)
+        self._moving = False
         self._anchor_hand = None
         self._anchor_pose = None
         self._seen_since = None
@@ -248,6 +273,35 @@ class HandArmController:
         x0, y0, s0, r0 = self._anchor_hand
         a = self._anchor_pose
 
+        if MODE == "simple":
+            dx = (sx - 0.5) * self.aspect          # + = hand right of centre
+            dy = sy - 0.5                          # + = hand below centre
+            dist = math.hypot(dx, dy)
+            angle = math.degrees(math.atan2(-dy, dx))   # 0 = right, 90 = up
+
+            # Dead zone with hysteresis so it doesn't flick on/off at the edge
+            if self._moving and dist < SIMPLE_DEADZONE - SIMPLE_HYSTERESIS:
+                self._moving = False
+            elif not self._moving and dist > SIMPLE_DEADZONE + SIMPLE_HYSTERESIS:
+                self._moving = True
+
+            c = self._cmd
+            out = copy.copy(c)
+            if self._moving:
+                ux, uy = dx / dist, dy / dist                   # unit direction to the hand
+                v_h = SIMPLE_SIGN_H * SIMPLE_SPEED * ux         # mm/s sideways (hand left -> negative)
+                v_z = SIMPLE_SIGN_V * SIMPLE_SPEED * -uy        # mm/s up (hand up -> positive)
+                out.theta = c.theta + (v_h / max(c.r, 50.0)) * dt   # sideways mm/s -> base turn
+                out.z     = _clamp(c.z + v_z * dt, Z_MIN, Z_MAX)
+                self.state = "tracking"
+                self.debug = (f"hand {dist:.2f} from centre at {angle:.0f}deg -> "
+                              f"sideways {v_h:+.0f}mm/s up {v_z:+.0f}mm/s")
+            else:
+                self.state = "tracking (centred)"
+                self.debug = f"hand {dist:.2f} from centre -> in dead zone, holding"
+            self._cmd = out
+            return out, pinch_to_pincher(sp)
+
         if MODE == "follow":
             ex = _deadband(sx - 0.5, FOLLOW_DEADBAND_XY)          # + = hand right of centre
             ey = _deadband(sy - 0.5, FOLLOW_DEADBAND_XY)          # + = hand below centre
@@ -259,16 +313,24 @@ class HandArmController:
             if not FOLLOW_DISTANCE:
                 v_r = 0.0
 
+            v_pitch = 0.0
+            if FOLLOW_VERTICAL == "pitch":
+                v_pitch = _clamp(FOLLOW_SIGN_PITCH * FOLLOW_K_PITCH * -ey, -PITCH_RATE, PITCH_RATE)
+                v_z = 0.0
+
             c = self._cmd
             out = copy.copy(c)
             out.theta = c.theta + v_theta * dt
             out.z     = _clamp(c.z + v_z * dt, Z_MIN, Z_MAX)
             out.r     = _clamp(c.r + v_r * dt, R_MIN, R_MAX)
+            out.pitch = _clamp(c.pitch + v_pitch * dt, FOLLOW_PITCH_MIN, FOLLOW_PITCH_MAX)
             self._cmd = out
 
             self.state = "tracking"
-            self.debug = (f"off-centre x={sx - 0.5:+.2f} y={sy - 0.5:+.2f} size={ss:.3f} (keep {s0:.3f})  "
-                          f"-> base {math.degrees(v_theta):+.0f}deg/s z {v_z:+.0f} r {v_r:+.0f} mm/s")
+            vert = (f"tilt {v_pitch:+.0f}deg/s (pitch {out.pitch:.0f})" if FOLLOW_VERTICAL == "pitch"
+                    else f"z {v_z:+.0f}mm/s")
+            self.debug = (f"x{sx - 0.5:+.2f} y{sy - 0.5:+.2f} size {ss:.3f}/{s0:.3f} -> "
+                          f"base {math.degrees(v_theta):+.0f}deg/s {vert} r {v_r:+.0f}mm/s")
             return out, pinch_to_pincher(sp)
 
         # Where the hand says the arm should be

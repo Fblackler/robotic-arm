@@ -43,6 +43,7 @@ from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision
 
 from hand_features import HAND_CONNECTIONS, extract_features
+import hand_control
 from hand_control import ArmPose, HandArmController
 
 # =========================================================
@@ -344,7 +345,7 @@ def draw_overlay(img, landmarks, feat, state, arm_status, paused, fps, debug="")
     h, w = img.shape[:2]
     if landmarks:
         pts = [(int(l.x * w), int(l.y * h)) for l in landmarks]
-        colour = (0, 200, 255) if state == "tracking" else (160, 160, 160)
+        colour = (0, 200, 255) if state.startswith("tracking") else (160, 160, 160)
         for a, b in HAND_CONNECTIONS:
             cv2.line(img, pts[a], pts[b], colour, 2)
         for p in pts:
@@ -355,17 +356,16 @@ def draw_overlay(img, landmarks, feat, state, arm_status, paused, fps, debug="")
             closed = feat.pinch < 0.45
             cv2.line(img, pts[4], pts[8], (0, 0, 255) if closed else (0, 255, 0), 2)
 
-    # Centre target (follow mode keeps your hand inside this box)
+    # Centre dead zone: the arm holds still while your palm is inside this circle
     cx, cy = w // 2, h // 2
-    bw, bh = int(0.06 * w), int(0.06 * h)
-    cv2.rectangle(img, (cx - bw, cy - bh), (cx + bw, cy + bh), (255, 200, 0), 1)
+    cv2.circle(img, (cx, cy), int(hand_control.SIMPLE_DEADZONE * h), (255, 200, 0), 1)
     cv2.line(img, (cx - 10, cy), (cx + 10, cy), (255, 200, 0), 1)
     cv2.line(img, (cx, cy - 10), (cx, cy + 10), (255, 200, 0), 1)
 
     if paused:
         label, col = "PAUSED", (60, 60, 255)
-    elif state == "tracking":
-        label, col = "TRACKING", (80, 220, 80)
+    elif state.startswith("tracking"):
+        label, col = state.upper(), (80, 220, 80)
     else:
         label, col = state.upper(), (200, 200, 200)
     cv2.rectangle(img, (0, 0), (w, 34), (0, 0, 0), -1)
@@ -436,6 +436,7 @@ def main():
             if MIRROR:
                 frame = cv2.flip(frame, 1)             # mirror, like a selfie
             h, w = frame.shape[:2]
+            ctrl.aspect = w / h
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             ts = int((time.monotonic() - t0) * 1000)
             ts = max(ts, ts_last + 1)                  # MediaPipe needs increasing timestamps
