@@ -49,7 +49,7 @@ SIMPLE_SPEED       = 30.0   # mm/s, fixed
 SIMPLE_DEADZONE    = 0.10   # radius of the dead zone, as a fraction of picture height
 SIMPLE_HYSTERESIS  = 0.03   # start moving at DEADZONE+this, stop at DEADZONE-this (stops flicker)
 SIMPLE_SIGN_H      = +1     # flip if left/right goes the wrong way
-SIMPLE_SIGN_V      = +1     # flip if up/down goes the wrong way
+SIMPLE_SIGN_V      = -1     # flipped: +1 went the wrong way on the real arm
 
 # ---- Follow mode (camera on the arm) ----
 # Error = how far the hand is from the centre (x, y go from -0.5 to +0.5).
