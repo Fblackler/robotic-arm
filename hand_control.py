@@ -49,7 +49,7 @@ FOLLOW_K_R     = 150.0    # mm/s of reach per unit of distance error (size too s
 FOLLOW_DEADBAND_XY   = 0.06   # ignore the hand being this close to centre (stops wobbling)
 FOLLOW_DEADBAND_SIZE = 0.15   # ignore size changes smaller than 15%
 FOLLOW_SIGN_THETA = -1    # hand right of centre -> turn base right
-FOLLOW_SIGN_Z     = +1    # hand above centre -> move up
+FOLLOW_SIGN_Z     = -1    # hand above centre -> move up (flipped: +1 went the wrong way)
 FOLLOW_SIGN_R     = +1    # hand looks smaller (further) -> reach towards it
 FOLLOW_DISTANCE   = True  # set False to only follow left/right/up/down
 
