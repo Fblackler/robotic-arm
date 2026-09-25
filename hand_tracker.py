@@ -50,7 +50,7 @@ from hand_control import ArmPose, HandArmController
 # =========================================================
 
 SERVER        = "http://localhost:8080"   # full_servo_hud.py
-SPEED_PCT     = 70
+SPEED_PCT     = 20                        # servo speed on the server, 1-100 (was 70)
 SEND_HZ       = 20                        # how often to send arm targets
 PREVIEW_PORT  = 8090
 PREVIEW_FPS   = 15

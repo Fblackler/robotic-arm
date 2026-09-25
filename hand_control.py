@@ -31,9 +31,9 @@ from hand_features import OneEuroFilter
 # Tuning. Flip a SIGN_ value if an axis moves the wrong way.
 # =========================================================
 
-THETA_GAIN = 1.6      # radians of base rotation for moving across the whole image
-Z_GAIN     = 450.0    # mm of height for moving from the top to the bottom of the image
-R_GAIN     = 350.0    # mm of reach for the palm looking 2x bigger (hand ~2x closer)
+THETA_GAIN = 0.8      # radians of base rotation for moving across the whole image (was 1.6)
+Z_GAIN     = 200.0    # mm of height for moving from the top to the bottom of the image (was 450)
+R_GAIN     = 150.0    # mm of reach for the palm looking 2x bigger (was 350)
 ROLL_GAIN  = 1.0      # degrees of arm roll per degree of hand tilt
 
 SIGN_THETA = -1       # hand to your right -> which way the base turns
@@ -52,10 +52,10 @@ Z_MIN, Z_MAX         = 0.0, 900.0
 PITCH_MIN, PITCH_MAX = -90.0, 90.0
 ROLL_MIN, ROLL_MAX   = -180.0, 180.0
 
-R_RATE     = 250.0    # mm/s
-THETA_RATE = 0.8      # rad/s
-Z_RATE     = 200.0    # mm/s
-ROLL_RATE  = 90.0     # deg/s
+R_RATE     = 40.0     # mm/s       SLOW START - raise once you trust it (was 250)
+THETA_RATE = 0.15     # rad/s (~9 deg/s)  SLOW START (was 0.8)
+Z_RATE     = 30.0     # mm/s       SLOW START (was 200)
+ROLL_RATE  = 15.0     # deg/s      SLOW START (was 90)
 
 # Pincher: pinch ratio -> servo position
 PINCHER_MIN   = 1000.0   # fully open
