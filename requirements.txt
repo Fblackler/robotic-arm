@@ -1,0 +1,5 @@
+# Server (server/full_servo_hud.py)
+flask
+pyserial
+numpy
+requests

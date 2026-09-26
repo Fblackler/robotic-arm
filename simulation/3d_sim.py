@@ -4,6 +4,10 @@ import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
 from mpl_toolkits.mplot3d import Axes3D
 
+import os, sys
+# Shared arm code lives in ../server
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "server"))
+
 from robotic_arm_logic import forward_kinematics, inverse_kinematics, SERVOS as _real_servos
 
 

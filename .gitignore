@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+venv/
+.venv/
+cache/
+*.task
+robot_config.json
