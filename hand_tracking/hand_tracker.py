@@ -15,13 +15,12 @@ Watch what the camera sees from any device on your network:
     http://<server-ip>:8090
 The page has Pause / Resume buttons.
 
-Controls (see hand_control.py for tuning):
-    open hand, hold still ~0.5 s   ->  arm starts following
-    move left / right              ->  base turns
-    move up / down                 ->  arm up / down
-    move towards / away from camera -> reach further / closer
-    pinch thumb + index            ->  close pincher
-    make a fist or remove hand     ->  arm holds still (re-position your hand, then open it)
+Controls (settings are at the top of hand_control.py):
+    open hand, hold still ~0.5 s     ->  arm starts following
+    hand inside the centre circle    ->  arm holds still
+    hand outside the circle          ->  arm moves towards it at a fixed slow speed
+    pinch thumb + index              ->  close gripper
+    make a fist or remove hand       ->  arm stops
 """
 
 import argparse
@@ -358,7 +357,7 @@ def draw_overlay(img, landmarks, feat, state, arm_status, paused, fps, debug="")
 
     # Centre dead zone: the arm holds still while your palm is inside this circle
     cx, cy = w // 2, h // 2
-    cv2.circle(img, (cx, cy), int(hand_control.SIMPLE_DEADZONE * h), (255, 200, 0), 1)
+    cv2.circle(img, (cx, cy), int(hand_control.DEADZONE * h), (255, 200, 0), 1)
     cv2.line(img, (cx - 10, cy), (cx + 10, cy), (255, 200, 0), 1)
     cv2.line(img, (cx, cy - 10), (cx, cy + 10), (255, 200, 0), 1)
 

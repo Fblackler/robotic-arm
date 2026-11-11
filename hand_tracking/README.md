@@ -34,10 +34,9 @@ Settings are at the top of `hand_control.py`:
 
 | Setting | Purpose |
 |---|---|
-| `MODE` | `simple` (default), `follow`, `absolute` or `relative` |
-| `SIMPLE_SPEED` | Movement speed in mm/s |
-| `SIMPLE_DEADZONE` | Radius of the centre dead zone |
-| `SIMPLE_SIGN_H`, `SIMPLE_SIGN_V` | Flip left/right or up/down |
+| `SPEED` | Movement speed in mm/s |
+| `DEADZONE` | Radius of the centre dead zone |
+| `SIGN_H`, `SIGN_V` | Flip left/right or up/down |
 | `PINCH_CLOSED`, `PINCH_OPEN` | Gripper pinch thresholds |
 
 `MIRROR` in `hand_tracker.py` flips the image for a desk-mounted camera facing the user.
