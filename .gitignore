@@ -5,3 +5,4 @@ venv/
 cache/
 *.task
 robot_config.json
+paper_pose.json
